@@ -16,6 +16,7 @@
     "build": "pnpm --filter @ai-support/web build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "db:lint": "supabase db lint --local --level error",
+    "db:provision": "./scripts/provision-local-database-role.sh",
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
     "dev:api": "cd apps/api && uv run --env-file ../../.env uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",

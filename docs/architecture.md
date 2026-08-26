@@ -2,7 +2,8 @@
 
 ## Status
 
-This document describes the M0 architecture and the intended direction. Sections marked **planned** are not implemented yet.
+This document describes the M1 authentication and tenancy architecture plus the intended direction
+for later milestones. Sections marked **planned** are not implemented yet.
 
 ## Architectural drivers
 
@@ -20,24 +21,33 @@ flowchart LR
     customer[Customer] --> webchat[Web chat]
     customer --> telegram[Telegram - planned]
     agent[Support agent] --> web[Next.js web app]
+    web --> auth[Supabase Auth]
     webchat --> api[FastAPI modular monolith]
     telegram --> api
     web --> api
-    api --> db[(PostgreSQL + pgvector)]
+    api --> db[(Supabase PostgreSQL + pgvector)]
+    auth --> db
     api --> storage[Object storage - planned]
     api --> llm[LLM and embedding providers - planned]
 ```
 
-Only the web application, API health endpoint, and local database service are scaffolded in M0.
+M1 adds Supabase Auth sessions, authenticated application routes, FastAPI JWT verification,
+organizations, memberships, role authorization, and PostgreSQL RLS. Knowledge, chat, Telegram,
+storage, and model providers remain planned.
 
 ## Repository and deployment units
 
 The repository contains two application boundaries:
 
-- **Web (`apps/web`)** — Next.js App Router application. It owns browser rendering, user interaction, and calls to the public API. Secrets and privileged database access must remain server-side.
-- **API (`apps/api`)** — FastAPI modular monolith. It will own authorization, tenant-aware domain workflows, persistence, retrieval, provider orchestration, and channel adapters.
+- **Web (`apps/web`)** — Next.js App Router application. It owns browser rendering, Supabase Auth
+  session integration, user interaction, and calls to the public API. It accesses Supabase directly
+  only for authentication and does not query product data through Supabase Data APIs.
+- **API (`apps/api`)** — FastAPI modular monolith. It owns authorization, tenant-aware domain
+  workflows, product persistence, and later retrieval, provider orchestration, and channel adapters.
 
-PostgreSQL with pgvector is the initial system of record. Object storage and external providers will be added behind interfaces when their milestones begin.
+Supabase PostgreSQL with pgvector is the system of record. Supabase Auth owns credentials and
+sessions; current application roles and memberships remain PostgreSQL data. Object storage and
+external providers will be added behind interfaces when their milestones begin.
 
 A background worker may later run from the same backend codebase for ingestion and retries. That is a process boundary for operational work, not permission to duplicate domain logic or introduce a separate service prematurely.
 
@@ -64,12 +74,30 @@ Keep route-specific UI close to App Router routes. Promote code into `src/compon
 
 Prefer server components for data loading and static rendering. Client components are appropriate for interactive chat, streaming state, and browser-only integrations.
 
-## Core request rules (planned)
+## Authenticated request flow
 
-1. The edge/API authenticates the caller or validates a public channel session.
+1. Supabase Auth creates an access/refresh-token session through the Next.js SSR integration.
+2. Next.js validates identity for protected rendering and forwards the access token as a bearer
+   token when calling FastAPI.
+3. FastAPI validates the configured JWT algorithm, JWKS signature, issuer, audience, expiry, and
+   subject, then constructs an authenticated actor.
+4. A path organization UUID selects a workspace but never grants access. FastAPI resolves a current
+   membership and enforces the role required by the application service.
+5. The database dependency begins a transaction, installs verified claims transaction-locally, and
+   assumes the restricted `app_api` role before the first product query.
+6. Repositories require organization context and use explicit tenant filters; RLS independently
+   evaluates the same user against membership data.
+7. Expected failures use the stable API error contract and do not reveal foreign-tenant existence.
+
+Organization roles are deliberately absent from JWT claims so a role change takes effect on the
+next database authorization check rather than waiting for token refresh.
+
+## Core request rules
+
+1. The edge/API authenticates the caller or, in a later milestone, validates a public channel session.
 2. A trusted tenant context is resolved from authorization data, never accepted blindly from a request body.
 3. Application services receive tenant context explicitly.
-4. Persistence queries require tenant scope; PostgreSQL policies may add defense in depth.
+4. Persistence queries require tenant scope; PostgreSQL policies add defense in depth.
 5. External provider calls receive only the minimum required tenant data.
 6. Responses use stable public identifiers and avoid exposing provider or storage internals.
 
@@ -98,8 +126,6 @@ See `SECURITY.md` and `docs/database.md` for repository and data-specific contro
 
 These choices should be approved when their milestone has concrete requirements:
 
-- Authentication/Supabase Auth versus another identity provider
-- Application-enforced tenancy plus PostgreSQL RLS details
 - Object storage provider and document malware-scanning approach
 - Background job implementation and queue infrastructure
 - Initial LLM and embedding providers and fallback policy

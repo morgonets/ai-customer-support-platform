@@ -19,7 +19,8 @@ pnpm install --frozen-lockfile
 (cd apps/api && uv sync --frozen)
 pnpm dev:supabase
 # Copy the printed local publishable key into .env.
-# After M1 migrations exist, provision the api_login password as documented below.
+pnpm db:reset
+pnpm db:provision
 pnpm dev:web
 pnpm dev:api
 ```
@@ -56,9 +57,9 @@ recreates local application data from committed migrations and seed files and is
 - `API_DATABASE_PASSWORD`: local runtime-role provisioning input
 - `API_DATABASE_URL_DOCKER`, `SUPABASE_JWKS_URL_DOCKER`: container-to-host local endpoints
 
-The local `api_login` password is deliberately absent from migrations. After a database reset, use
-the committed provisioning command introduced with the M1 database migration to set the password
-from `API_DATABASE_PASSWORD`. Production roles and passwords must be provisioned by an approved
+The local `api_login` password is deliberately absent from migrations. `pnpm db:provision` reads
+`API_DATABASE_PASSWORD` from the environment or the ignored root `.env` and sets only that local
+role's password. Production roles and passwords must be provisioned by an approved
 secret-management/release process; do not place them in migrations.
 
 Production configuration must come from the hosting platform's secret/configuration service. Do not bake secrets into images, source files, build arguments, `NEXT_PUBLIC_*`, or CI logs.
