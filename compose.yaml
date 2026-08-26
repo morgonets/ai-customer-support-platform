@@ -1,24 +1,6 @@
 name: ai-customer-support-platform
 
 services:
-  db:
-    image: pgvector/pgvector:0.8.1-pg17
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ai_support}
-      POSTGRES_USER: ${POSTGRES_USER:-ai_support}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-    restart: unless-stopped
-
   api:
     build:
       context: .
@@ -27,12 +9,14 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-local}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-["http://localhost:3000"]}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_support}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-ai_support}
+      DATABASE_URL: ${API_DATABASE_URL_DOCKER:?Set API_DATABASE_URL_DOCKER in .env}
+      SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
+      SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER:-http://127.0.0.1:54321/auth/v1}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL_DOCKER:?Set SUPABASE_JWKS_URL_DOCKER in .env}
     ports:
       - "${API_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test:
         [
@@ -53,6 +37,8 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}
     environment:
       NODE_ENV: production
     ports:
@@ -67,6 +53,3 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
-
-volumes:
-  postgres_data:

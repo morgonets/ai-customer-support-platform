@@ -29,7 +29,7 @@ The repository starts as a modular monolith with two deployable applications:
 
 - `apps/web`: Next.js and TypeScript user interface
 - `apps/api`: FastAPI and Python backend
-- PostgreSQL with pgvector: transactional and vector data store
+- Supabase PostgreSQL with pgvector: transactional and vector data store
 
 This keeps deployment and local development straightforward while preserving clear internal boundaries for domain logic and external providers. See [architecture](docs/architecture.md), [database](docs/database.md), [API](docs/api.md), and [deployment](docs/deployment.md) for the current design.
 
@@ -53,7 +53,7 @@ This keeps deployment and local development straightforward while preserving cle
 - pnpm 11.19.0
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/) for Python dependency management
-- Docker with Compose for PostgreSQL/pgvector and container validation
+- Docker with Compose for the local Supabase stack and container validation
 
 ## Local setup
 
@@ -63,18 +63,22 @@ cd ai-customer-support-platform
 cp .env.example .env
 ```
 
-Replace every `replace-with-...` value in `.env` before starting containers. Then install dependencies:
+Install dependencies:
 
 ```bash
 pnpm install --frozen-lockfile
 cd apps/api && uv sync --frozen && cd ../..
 ```
 
-Start PostgreSQL:
+Start the local Supabase Auth and PostgreSQL stack:
 
 ```bash
-docker compose up -d db
+pnpm dev:supabase
 ```
+
+Copy the local publishable key shown by the command into `.env`, then provision the runtime
+database login as described in [deployment documentation](docs/deployment.md). Replace every
+remaining `replace-with-...` value before starting an application.
 
 Run the applications in separate terminals:
 
@@ -87,7 +91,8 @@ pnpm dev:api
 - API health: <http://localhost:8000/health>
 - OpenAPI UI: <http://localhost:8000/docs>
 
-To run the complete local stack in containers instead, use `docker compose up --build`.
+To run the applications in containers, start Supabase first and then use
+`docker compose up --build`.
 
 ## Quality commands
 
