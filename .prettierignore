@@ -1,0 +1,7 @@
+.next
+.venv
+coverage
+htmlcov
+node_modules
+pnpm-lock.yaml
+uv.lock

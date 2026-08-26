@@ -1,0 +1,62 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+venv/
+
+# Next.js and frontend output
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts.tmp
+
+# Python caches and output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Test and tool output
+.cache/
+.turbo/
+test-results/
+playwright-report/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# Logs and local runtime files
+*.log
+*.pid
+*.seed
+*.sqlite
+*.sqlite3
+
+# Local Docker overrides
+compose.override.yaml
+docker-compose.override.yml

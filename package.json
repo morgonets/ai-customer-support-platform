@@ -1,0 +1,29 @@
+{
+  "name": "ai-customer-support-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A production-oriented multi-tenant AI customer support SaaS.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/morgonets/ai-customer-support-platform.git"
+  },
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=11.19.0 <12"
+  },
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "build": "pnpm --filter @ai-support/web build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "dev:api": "cd apps/api && uv run --env-file ../../.env uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "dev:web": "pnpm --filter @ai-support/web dev",
+    "format": "prettier --write . && cd apps/api && uv run ruff format .",
+    "format:check": "prettier --check . && cd apps/api && uv run ruff format --check .",
+    "lint": "pnpm --filter @ai-support/web lint && cd apps/api && uv run ruff check .",
+    "test": "pnpm --filter @ai-support/web test && cd apps/api && uv run pytest",
+    "typecheck": "pnpm --filter @ai-support/web typecheck && cd apps/api && uv run mypy app tests"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.2"
+  }
+}
