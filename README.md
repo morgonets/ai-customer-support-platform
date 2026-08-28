@@ -4,7 +4,9 @@
 
 A production-oriented, multi-tenant customer-support SaaS in development. The platform is intended to let businesses connect a knowledge base and provide grounded AI answers with citations through web chat and Telegram, while retaining conversation history, analytics, and a path to human support.
 
-> **Project status:** Milestone M0 establishes the repository and development foundation. Authentication, knowledge ingestion, RAG, customer chat, Telegram, analytics, billing, and human handoff are planned but are not implemented yet.
+> **Project status:** Milestone M1 authentication and tenant foundations are in development on top
+> of the completed M0 repository foundation. Knowledge ingestion, RAG, customer chat, Telegram,
+> analytics, billing, and human handoff remain deferred to later milestones.
 
 ## Why this project exists
 
@@ -88,6 +90,7 @@ pnpm dev:api
 ```
 
 - Web: <http://localhost:3000>
+- Local Auth email inbox: <http://127.0.0.1:54324>
 - API health: <http://localhost:8000/health>
 - API readiness: <http://localhost:8000/ready>
 - OpenAPI UI: <http://localhost:8000/docs>

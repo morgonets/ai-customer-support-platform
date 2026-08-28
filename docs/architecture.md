@@ -75,9 +75,16 @@ Keep route-specific UI close to App Router routes. Promote code into `src/compon
 
 Prefer server components for data loading and static rendering. Client components are appropriate for interactive chat, streaming state, and browser-only integrations.
 
+M1 uses `@supabase/ssr` cookie-backed clients. The root Next.js proxy refreshes expiring sessions;
+server actions own registration, login, logout, and password recovery; and the protected `/app`
+layout establishes identity from locally verified asymmetric JWT claims. Confirmation links terminate
+at `/auth/confirm`, exchange their one-time token with Supabase Auth, and allow only an explicit
+recovery redirect. Passwords and refresh tokens never pass through FastAPI.
+
 ## Authenticated request flow
 
-1. Supabase Auth creates an access/refresh-token session through the Next.js SSR integration.
+1. Supabase Auth creates an access/refresh-token session through the Next.js SSR integration. The
+   access token is short-lived and the proxy persists provider refresh rotation in secure cookies.
 2. Next.js validates identity for protected rendering and forwards the access token as a bearer
    token when calling FastAPI.
 3. FastAPI validates the configured JWT algorithm, JWKS signature, issuer, audience, expiry, and
@@ -89,6 +96,10 @@ Prefer server components for data loading and static rendering. Client component
 6. Repositories require organization context and use explicit tenant filters; RLS independently
    evaluates the same user against membership data.
 7. Expected failures use the stable API error contract and do not reveal foreign-tenant existence.
+
+Protected rendering and API authorization are separate checks. Next.js redirects unauthenticated
+application rendering to `/login`; FastAPI still verifies every bearer token independently and never
+trusts a Next.js-only header or session assertion.
 
 Organization roles are deliberately absent from JWT claims so a role change takes effect on the
 next database authorization check rather than waiting for token refresh.

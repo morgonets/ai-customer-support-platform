@@ -11,7 +11,14 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/app/page.tsx"],
+      include: [
+        "src/app/page.tsx",
+        "src/app/(auth)/auth-form.tsx",
+        "src/lib/auth/credentials.ts",
+        "src/lib/auth/identity.ts",
+        "src/lib/auth/messages.ts",
+        "src/lib/supabase/config.ts",
+      ],
       reporter: ["text", "json-summary"],
       thresholds: {
         branches: 100,

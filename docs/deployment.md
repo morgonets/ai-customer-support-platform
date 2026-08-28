@@ -49,6 +49,7 @@ recreates local application data from committed migrations and seed files and is
 - `LOG_LEVEL`: backend log level
 - `API_PORT`: published backend port for the local Compose stack
 - `API_CORS_ORIGINS`: JSON array of allowed browser origins
+- `APP_URL`: canonical web origin used to build allowlisted Auth confirmation/recovery redirects
 - `NEXT_PUBLIC_API_URL`: public browser-visible API base URL
 - `NEXT_PUBLIC_SUPABASE_URL`: browser-visible Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: browser-visible Supabase publishable key; not a secret
@@ -68,9 +69,15 @@ Production startup rejects local/placeholder database and Auth endpoints and req
 Supabase issuer and JWKS URL. Hosting-specific URLs, credentials, clock-skew policy, and secret
 delivery remain deployment configuration; this repository does not invent production values.
 
+`APP_URL` must be an origin without a path, query, or fragment. The same production origin and
+`/auth/confirm` callback must be allowlisted in the Supabase Auth project configuration. Cookie
+security, Auth email delivery, SMTP reputation, redirect allowlists, CAPTCHA/rate limits, and custom
+email templates remain environment-specific operational choices; local development uses Mailpit.
+
 ## Container contracts
 
 - The web image is a Next.js standalone production server listening on port `3000`.
+- The web runtime needs `APP_URL`; the three `NEXT_PUBLIC_*` values are browser-visible build inputs.
 - The API image runs a non-root user and Uvicorn on port `8000`.
 - `/health` is a process liveness check; `/ready` verifies PostgreSQL connectivity for traffic readiness.
 - Images install dependencies from committed lockfiles.
@@ -83,7 +90,7 @@ For production, pin base images by digest through an explicit dependency-update 
 
 GitHub Actions runs independent frontend and backend jobs for pull requests and pushes to `main`:
 
-- Frontend: locked install, formatting, ESLint, TypeScript, Vitest coverage, Next.js production build
+- Frontend: locked install, formatting, ESLint, TypeScript, auth-state Vitest coverage, Next.js production build
 - Backend: locked uv sync, Ruff formatting/linting, strict mypy, pytest coverage
 
 Branch protection should require both jobs after the initial workflow has run successfully on GitHub.

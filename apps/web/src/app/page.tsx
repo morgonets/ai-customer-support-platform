@@ -1,29 +1,36 @@
+import Link from "next/link";
+
 const foundationItems = [
-  "Next.js and FastAPI foundations",
-  "Strict linting, typing, and tests",
-  "Containerized PostgreSQL with pgvector",
-  "Independent frontend and backend CI",
+  "Supabase email and password authentication",
+  "Protected application routes",
+  "FastAPI bearer-token verification",
+  "PostgreSQL-backed organization roles",
 ] as const;
 
 export default function Home() {
   return (
-    <main>
+    <main className="landing-main">
       <section className="hero" aria-labelledby="page-title">
-        <p className="eyebrow">Milestone M0 · Foundation</p>
+        <p className="eyebrow">Milestone M1 · Authentication &amp; Organizations</p>
         <h1 id="page-title">AI Customer Support Platform</h1>
         <p className="summary">
-          A production-oriented base for grounded, multi-tenant customer support across web chat and
-          messaging channels.
+          Secure identity and workspace boundaries for a production-oriented customer support
+          platform.
         </p>
-        <div className="status" role="status">
-          Product capabilities are intentionally not implemented yet.
+        <div className="hero-actions">
+          <Link className="primary-link" href="/register">
+            Create account
+          </Link>
+          <Link className="secondary-link" href="/login">
+            Sign in
+          </Link>
         </div>
       </section>
 
       <section className="foundation" aria-labelledby="foundation-title">
         <div>
-          <p className="eyebrow">Current scope</p>
-          <h2 id="foundation-title">A reliable place to build from</h2>
+          <p className="eyebrow">Current foundation</p>
+          <h2 id="foundation-title">Tenant boundaries before product features</h2>
         </div>
         <ul>
           {foundationItems.map((item) => (
