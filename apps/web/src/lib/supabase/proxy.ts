@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getSupabasePublicConfig } from "./config";
+import { ACTIVE_ORGANIZATION_COOKIE, validOrganizationId } from "../organizations/active";
 
 export async function refreshSupabaseSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
@@ -24,5 +25,15 @@ export async function refreshSupabaseSession(request: NextRequest): Promise<Next
   });
 
   await supabase.auth.getClaims();
+  const organizationId = validOrganizationId(request.nextUrl.pathname.split("/")[2]);
+  if (organizationId !== null) {
+    response.cookies.set(ACTIVE_ORGANIZATION_COOKIE, organizationId, {
+      httpOnly: true,
+      maxAge: 60 * 60 * 24 * 365,
+      path: "/",
+      sameSite: "lax",
+      secure: request.nextUrl.protocol === "https:",
+    });
+  }
   return response;
 }

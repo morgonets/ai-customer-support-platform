@@ -282,6 +282,124 @@ h2 {
   padding: clamp(2rem, 7vw, 5rem) 0;
 }
 
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.65fr);
+  gap: 1.5rem;
+}
+
+.workspace-heading {
+  grid-column: 1 / -1;
+}
+
+.workspace-heading h1 {
+  max-width: 50rem;
+  margin: 1rem 0;
+  font-size: clamp(2.75rem, 7vw, 5.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.055em;
+}
+
+.organization-switcher {
+  display: grid;
+  grid-template-columns: auto minmax(14rem, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 48rem;
+  margin-bottom: clamp(2rem, 6vw, 4rem);
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--surface);
+}
+
+.organization-switcher label {
+  font-weight: 700;
+}
+
+.organization-switcher select {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  color: var(--text);
+  background: #081411;
+}
+
+.compact-panel {
+  align-self: start;
+}
+
+.compact-panel h2,
+.membership-panel h2 {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.membership-panel {
+  width: 100%;
+  max-width: none;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section-heading > span {
+  display: grid;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+}
+
+.membership-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.membership-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: #091612;
+}
+
+.membership-list li div {
+  display: grid;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.membership-list li div span {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+}
+
+.role-badge {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 @media (max-width: 720px) {
   .foundation {
     grid-template-columns: 1fr;
@@ -294,6 +412,15 @@ h2 {
 
   .application-header {
     flex-direction: column;
+  }
+
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .organization-switcher {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 

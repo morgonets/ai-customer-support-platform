@@ -41,6 +41,7 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}
     environment:
       APP_URL: ${APP_URL:-http://localhost:3000}
+      API_INTERNAL_URL: http://api:8000
       NODE_ENV: production
     ports:
       - "3000:3000"

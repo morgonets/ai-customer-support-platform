@@ -3,14 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-const emailOtpTypes = new Set<EmailOtpType>([
-  "email",
-  "email_change",
-  "invite",
-  "magiclink",
-  "recovery",
-  "signup",
-]);
+const emailOtpTypes = new Set<EmailOtpType>(["email_change", "recovery", "signup"]);
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const tokenHash = request.nextUrl.searchParams.get("token_hash");

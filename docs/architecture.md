@@ -101,6 +101,11 @@ Protected rendering and API authorization are separate checks. Next.js redirects
 application rendering to `/login`; FastAPI still verifies every bearer token independently and never
 trusts a Next.js-only header or session assertion.
 
+The protected application reads organization data only through typed FastAPI client modules. The
+active organization is a URL path segment; an HTTP-only preference cookie selects a default on the
+next `/app` visit but never grants access. The workspace switch action verifies membership through
+FastAPI before redirecting, and a direct foreign organization URL still receives FastAPI/RLS denial.
+
 Organization roles are deliberately absent from JWT claims so a role change takes effect on the
 next database authorization check rather than waiting for token refresh.
 

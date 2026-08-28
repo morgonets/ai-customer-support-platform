@@ -50,6 +50,7 @@ recreates local application data from committed migrations and seed files and is
 - `API_PORT`: published backend port for the local Compose stack
 - `API_CORS_ORIGINS`: JSON array of allowed browser origins
 - `APP_URL`: canonical web origin used to build allowlisted Auth confirmation/recovery redirects
+- `API_INTERNAL_URL`: server-to-server FastAPI origin; defaults to `NEXT_PUBLIC_API_URL` for host development
 - `NEXT_PUBLIC_API_URL`: public browser-visible API base URL
 - `NEXT_PUBLIC_SUPABASE_URL`: browser-visible Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: browser-visible Supabase publishable key; not a secret
@@ -78,6 +79,7 @@ email templates remain environment-specific operational choices; local developme
 
 - The web image is a Next.js standalone production server listening on port `3000`.
 - The web runtime needs `APP_URL`; the three `NEXT_PUBLIC_*` values are browser-visible build inputs.
+- Compose sets `API_INTERNAL_URL=http://api:8000`; production should use its private service origin.
 - The API image runs a non-root user and Uvicorn on port `8000`.
 - `/health` is a process liveness check; `/ready` verifies PostgreSQL connectivity for traffic readiness.
 - Images install dependencies from committed lockfiles.
