@@ -2,9 +2,8 @@
 
 ## Status
 
-M1 exposes operational health/readiness checks and an authenticated current-user endpoint. The
-organization and membership contracts described later in this document are added with their owning
-implementation changes.
+M1 exposes operational health/readiness checks, the authenticated current user, and organization
+and membership management. FastAPI is the exclusive product-data API.
 
 ## Operational endpoints
 
@@ -49,6 +48,45 @@ subject.
 The email may be `null` when the provider session has no email claim. Credentials and session
 refresh remain Supabase Auth concerns; FastAPI consumes access tokens and never accepts refresh
 tokens.
+
+## Organization endpoints
+
+All organization endpoints require the same bearer authentication as `/api/v1/users/me`.
+Organization IDs are UUID path parameters and select among the caller's current memberships; they
+never grant access.
+
+| Method   | Path                                                                  | Required role           | Result                                   |
+| -------- | --------------------------------------------------------------------- | ----------------------- | ---------------------------------------- |
+| `GET`    | `/api/v1/organizations`                                               | Authenticated           | Organizations the caller belongs to      |
+| `POST`   | `/api/v1/organizations`                                               | Authenticated           | Creates an organization and owner role   |
+| `GET`    | `/api/v1/organizations/{organization_id}`                             | Any organization member | Organization and caller's current role   |
+| `PATCH`  | `/api/v1/organizations/{organization_id}`                             | Owner or admin          | Updates the bounded organization name    |
+| `GET`    | `/api/v1/organizations/{organization_id}/memberships`                 | Any organization member | Current memberships and display names    |
+| `POST`   | `/api/v1/organizations/{organization_id}/memberships`                 | Owner; admin for member | Adds an existing Auth user by UUID       |
+| `PATCH`  | `/api/v1/organizations/{organization_id}/memberships/{membership_id}` | Owner                   | Changes `owner`/`admin`/`member` role    |
+| `DELETE` | `/api/v1/organizations/{organization_id}/memberships/{membership_id}` | See removal rules below | Removes the membership; no response body |
+
+An organization name is trimmed and must contain 1–100 characters. Creation inserts the
+organization and its first owner in one transaction. Names are not globally unique and no slug or
+organization-deletion contract is introduced in M1.
+
+Membership creation accepts:
+
+```json
+{
+  "user_id": "10000000-0000-0000-0000-000000000002",
+  "role": "member"
+}
+```
+
+Owners may add any role, change roles, and remove memberships. Admins may add and remove members,
+but cannot grant or remove admin/owner roles. Every user may remove their own membership. The
+database rejects removal or demotion of the last owner. Email invitations and a polished
+member-management interface remain deferred.
+
+Organization responses include `id`, `name`, the caller's `role`, `created_at`, and `updated_at`.
+Membership responses include `id`, `organization_id`, `user_id`, optional `display_name`, `role`,
+`created_at`, and `updated_at`. Timestamps are RFC 3339 UTC values.
 
 ## Contract conventions
 
@@ -96,6 +134,18 @@ Validation failures use `validation_error` with sanitized `location`, `message`,
 request inputs are excluded. Authentication failures use `401 authentication_required` or
 `401 invalid_token` and include `WWW-Authenticate: Bearer`. Provider payloads, SQL, stack traces,
 secrets, and cross-tenant hints never belong in responses.
+
+Tenant failures use these stable codes:
+
+- `404 organization_not_found` for an absent organization or one outside the caller's memberships;
+- `404 membership_not_found` for an absent or foreign-organization membership;
+- `403 insufficient_role` when a known organization member lacks the required role;
+- `404 membership_user_not_found` when the UUID supplied by an authorized manager is not an Auth user;
+- `409 membership_already_exists` for a duplicate organization/user membership;
+- `409 last_owner_required` when a mutation would leave no owner.
+
+The indistinguishable organization `404` is deliberate: foreign organization IDs do not reveal
+whether another tenant exists.
 
 ## Pagination, filtering, and idempotency (planned)
 

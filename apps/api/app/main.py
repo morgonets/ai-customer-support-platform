@@ -6,11 +6,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.api.tenant_errors import tenant_error_handler
 from app.core.auth import JwtVerifier
 from app.core.config import get_settings
 from app.core.database import Database
 from app.core.errors import ApiError, api_error_handler, validation_error_handler
 from app.core.request_context import RequestContextMiddleware
+from app.tenants.errors import TenantError
 
 
 def create_app() -> FastAPI:
@@ -36,6 +38,7 @@ def create_app() -> FastAPI:
     )
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
+    application.add_exception_handler(TenantError, tenant_error_handler)
     application.add_middleware(RequestContextMiddleware)
     application.add_middleware(
         CORSMiddleware,

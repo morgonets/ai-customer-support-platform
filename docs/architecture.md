@@ -53,17 +53,18 @@ A background worker may later run from the same backend codebase for ingestion a
 
 ## Backend module direction
 
-When product modules arrive, organize them by capability rather than technical layer alone:
+Product modules are organized by capability rather than technical layer alone. M1 implements the
+`tenants` capability; later directories remain planned:
 
 ```text
 app/
 ├── api/             # HTTP composition, dependencies, and versioned routers
 ├── core/            # Configuration, observability, security primitives
-├── tenants/         # Organizations, memberships, tenant context
-├── knowledge/       # Documents, ingestion, chunks, embeddings
-├── conversations/   # Conversations, messages, feedback, handoff
-├── answering/       # Retrieval, prompting, citations, provider ports
-└── integrations/    # Telegram and other external adapters
+├── tenants/         # Organizations, memberships, tenant context (M1)
+├── knowledge/       # Documents, ingestion, chunks, embeddings (planned)
+├── conversations/   # Conversations, messages, feedback, handoff (planned)
+├── answering/       # Retrieval, prompting, citations, provider ports (planned)
+└── integrations/    # Telegram and other external adapters (planned)
 ```
 
 Each capability may contain its domain models, application services, persistence adapters, and tests. HTTP handlers should validate/translate requests and delegate behavior; provider SDKs and SQL must not become the domain interface.
@@ -91,6 +92,12 @@ Prefer server components for data loading and static rendering. Client component
 
 Organization roles are deliberately absent from JWT claims so a role change takes effect on the
 next database authorization check rather than waiting for token refresh.
+
+The M1 authorization matrix is deliberately small: owners administer organization settings and all
+roles; admins update organization settings and add/remove members; members have read access; and
+every user may leave an organization. The last-owner database invariant applies regardless of the
+calling role. Permissions remain role-based only until a concrete later requirement justifies a
+more granular model.
 
 ## Core request rules
 

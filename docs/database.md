@@ -143,7 +143,8 @@ used. SQLAlchemy mappings are reviewed against migrations but do not generate a 
 - `pnpm db:reset` must rebuild an empty local database from all migrations and synthetic seeds.
 - `pnpm db:lint` checks database functions and schema objects.
 - `pnpm db:test` runs pgTAP schema, grant, role, invariant, and RLS isolation tests.
-- CI runs all three commands against the local Supabase stack.
+- CI runs all three commands against the local Supabase stack, then runs the FastAPI repository and
+  tenant service against the same PostgreSQL policies inside a rolled-back integration transaction.
 - Remote application requires an explicit reviewed `supabase db push --dry-run` followed by a
   controlled push. M1 does not link or modify a remote project.
 - Migrations document recovery notes. Once data exists, prefer roll-forward recovery over dropping

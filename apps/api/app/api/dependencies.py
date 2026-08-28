@@ -1,7 +1,9 @@
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import AuthenticatedActor, AuthenticationError, JwtVerifier
 from app.core.database import Database, database_from_app_state
@@ -43,5 +45,13 @@ def get_database(request: Request) -> Database:
     return database_from_app_state(request.app.state)
 
 
+async def get_authenticated_session(
+    actor: "CurrentActor", database: "CurrentDatabase"
+) -> AsyncIterator[AsyncSession]:
+    async with database.session_for(actor) as session:
+        yield session
+
+
 CurrentActor = Annotated[AuthenticatedActor, Depends(require_authenticated_actor)]
 CurrentDatabase = Annotated[Database, Depends(get_database)]
+CurrentSession = Annotated[AsyncSession, Depends(get_authenticated_session)]
