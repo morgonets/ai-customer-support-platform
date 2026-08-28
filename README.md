@@ -89,6 +89,7 @@ pnpm dev:api
 
 - Web: <http://localhost:3000>
 - API health: <http://localhost:8000/health>
+- API readiness: <http://localhost:8000/ready>
 - OpenAPI UI: <http://localhost:8000/docs>
 
 To run the applications in containers, start Supabase first and then use

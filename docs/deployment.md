@@ -53,6 +53,7 @@ recreates local application data from committed migrations and seed files and is
 - `NEXT_PUBLIC_SUPABASE_URL`: browser-visible Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: browser-visible Supabase publishable key; not a secret
 - `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL`, `SUPABASE_JWT_AUDIENCE`: backend token-verification contract
+- `SUPABASE_JWT_LEEWAY_SECONDS`: optional clock-skew allowance from `0` to `300` seconds; defaults to `0`
 - `DATABASE_URL`: least-privilege FastAPI runtime database URL
 - `API_DATABASE_PASSWORD`: local runtime-role provisioning input
 - `API_DATABASE_URL_DOCKER`, `SUPABASE_JWKS_URL_DOCKER`: container-to-host local endpoints
@@ -63,11 +64,15 @@ role's password. Production roles and passwords must be provisioned by an approv
 secret-management/release process; do not place them in migrations.
 
 Production configuration must come from the hosting platform's secret/configuration service. Do not bake secrets into images, source files, build arguments, `NEXT_PUBLIC_*`, or CI logs.
+Production startup rejects local/placeholder database and Auth endpoints and requires HTTPS for the
+Supabase issuer and JWKS URL. Hosting-specific URLs, credentials, clock-skew policy, and secret
+delivery remain deployment configuration; this repository does not invent production values.
 
 ## Container contracts
 
 - The web image is a Next.js standalone production server listening on port `3000`.
 - The API image runs a non-root user and Uvicorn on port `8000`.
+- `/health` is a process liveness check; `/ready` verifies PostgreSQL connectivity for traffic readiness.
 - Images install dependencies from committed lockfiles.
 - The Supabase CLI stack is for local development only and is not a production database recommendation.
 - Containers should write logs to stdout/stderr and keep writable state outside the image filesystem.
