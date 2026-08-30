@@ -1,10 +1,13 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import Database
+from app.core.request_context import RequestContextMiddleware
 from app.main import app
 
 client = TestClient(app)
@@ -86,3 +89,21 @@ def test_app_lifespan_disposes_database() -> None:
         app.state.database = original_database
 
     dispose.assert_awaited_once()
+
+
+def test_request_context_logs_and_reraises_unhandled_failure() -> None:
+    failing_app = FastAPI()
+    failing_app.add_middleware(RequestContextMiddleware)
+
+    @failing_app.get("/failure")
+    def failure() -> None:
+        raise RuntimeError("unexpected")
+
+    with (
+        patch("app.core.request_context.logger.exception") as log_exception,
+        TestClient(failing_app) as failing_client,
+        pytest.raises(RuntimeError, match="unexpected"),
+    ):
+        failing_client.get("/failure")
+
+    log_exception.assert_called_once()

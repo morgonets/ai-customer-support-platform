@@ -78,8 +78,9 @@ Prefer server components for data loading and static rendering. Client component
 M1 uses `@supabase/ssr` cookie-backed clients. The root Next.js proxy refreshes expiring sessions;
 server actions own registration, login, logout, and password recovery; and the protected `/app`
 layout establishes identity from locally verified asymmetric JWT claims. Confirmation links terminate
-at `/auth/confirm`, exchange their one-time token with Supabase Auth, and allow only an explicit
-recovery redirect. Passwords and refresh tokens never pass through FastAPI.
+at `/auth/confirm`, exchange either a PKCE authorization code or an allowlisted email OTP with
+Supabase Auth, and allow only an explicit recovery redirect. Passwords and refresh tokens never pass
+through FastAPI.
 
 ## Authenticated request flow
 
@@ -132,8 +133,11 @@ Provider abstraction does not mean every vendor feature must be flattened. Vendo
 
 ## Reliability and observability direction
 
-- Propagate a request/correlation ID through HTTP, jobs, provider calls, and logs.
-- Emit structured logs without secrets or unnecessary customer content.
+- M1 accepts a valid UUID `X-Request-ID` or generates one, returns it in every HTTP response, and
+  includes it in structured request-completion and failure logs.
+- M1 emits JSON application logs to stderr with method, path, status, and duration, excluding query
+  strings, request/response bodies, authorization headers, tokens, and unnecessary customer content.
+- Propagate the request/correlation ID through jobs and provider calls when those boundaries arrive.
 - Track latency, failure, token/cost, retrieval, citation, and handoff outcomes.
 - Make asynchronous work idempotent and persist job state before adding retries.
 - Use transactional outbox or equivalent only when a real cross-boundary delivery workflow requires it.

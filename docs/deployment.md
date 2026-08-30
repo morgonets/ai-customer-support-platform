@@ -84,18 +84,23 @@ email templates remain environment-specific operational choices; local developme
 - `/health` is a process liveness check; `/ready` verifies PostgreSQL connectivity for traffic readiness.
 - Images install dependencies from committed lockfiles.
 - The Supabase CLI stack is for local development only and is not a production database recommendation.
-- Containers should write logs to stdout/stderr and keep writable state outside the image filesystem.
+- The API writes structured JSON application logs to stderr. HTTP entries contain request ID, method,
+  path, status, and duration; they deliberately omit query strings, bodies, credentials, and tokens.
+- Containers keep writable state outside the image filesystem.
 
 For production, pin base images by digest through an explicit dependency-update process. M0 uses readable version tags so the initial stack remains maintainable while the hosting target is undecided.
 
 ## CI gates
 
-GitHub Actions runs independent frontend and backend jobs for pull requests and pushes to `main`:
+GitHub Actions runs independent frontend, backend, and database jobs for pull requests and pushes to
+`main`:
 
 - Frontend: locked install, formatting, ESLint, TypeScript, auth-state Vitest coverage, Next.js production build
 - Backend: locked uv sync, Ruff formatting/linting, strict mypy, pytest coverage
+- Database: local Supabase startup, migration reset, SQL lint, pgTAP RLS tests, and
+  FastAPI/PostgreSQL integration tests
 
-Branch protection should require both jobs after the initial workflow has run successfully on GitHub.
+Branch protection should require all three jobs after the workflow has run successfully on GitHub.
 
 ## Production direction
 

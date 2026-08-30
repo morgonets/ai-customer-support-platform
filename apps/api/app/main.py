@@ -11,12 +11,14 @@ from app.core.auth import JwtVerifier
 from app.core.config import get_settings
 from app.core.database import Database
 from app.core.errors import ApiError, api_error_handler, validation_error_handler
+from app.core.logging import configure_logging
 from app.core.request_context import RequestContextMiddleware
 from app.tenants.errors import TenantError
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings.log_level)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:

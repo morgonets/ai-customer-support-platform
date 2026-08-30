@@ -16,6 +16,8 @@ This roadmap sequences outcomes rather than promising dates. A milestone is comp
 
 ## M1 — Tenant-aware SaaS core
 
+**Implementation status:** complete on the M1 feature branch and awaiting review.
+
 **Goal:** introduce the minimum secure application and persistence model.
 
 - PostgreSQL migrations and repository/session infrastructure

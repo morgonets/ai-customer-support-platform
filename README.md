@@ -4,9 +4,9 @@
 
 A production-oriented, multi-tenant customer-support SaaS in development. The platform is intended to let businesses connect a knowledge base and provide grounded AI answers with citations through web chat and Telegram, while retaining conversation history, analytics, and a path to human support.
 
-> **Project status:** Milestone M1 authentication and tenant foundations are in development on top
-> of the completed M0 repository foundation. Knowledge ingestion, RAG, customer chat, Telegram,
-> analytics, billing, and human handoff remain deferred to later milestones.
+> **Project status:** Milestone M1 authentication and tenant foundations are implemented on this
+> feature branch and awaiting review. Knowledge ingestion, RAG, customer chat, Telegram, analytics,
+> billing, and human handoff remain deferred to later milestones.
 
 ## Why this project exists
 
@@ -109,7 +109,8 @@ pnpm build          # Production frontend build
 pnpm check          # All non-build quality gates
 ```
 
-CI runs the frontend and backend gates independently on every pull request and on pushes to `main`.
+CI runs independent frontend, backend, and local database-isolation gates on every pull request and
+on pushes to `main`.
 
 ## Documentation
 
