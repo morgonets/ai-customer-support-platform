@@ -13,6 +13,8 @@
 **/.ruff_cache
 **/.turbo
 **/.venv
+supabase/.branches
+supabase/.temp
 **/coverage
 **/htmlcov
 **/node_modules

@@ -2,11 +2,13 @@
 
 ## Status
 
-M0 supports local development and production-style container builds. No production hosting platform, cloud account, region, domain, or service-level objective has been selected.
+M1 uses Supabase CLI for reproducible local Auth and PostgreSQL development and retains
+production-style application container builds. No remote project, production hosting platform,
+region, domain, or service-level objective has been selected.
 
 ## Local modes
 
-### Host applications with containerized database
+### Host applications with local Supabase
 
 This is the fastest development loop:
 
@@ -15,20 +17,29 @@ cp .env.example .env
 # Replace all placeholder values in .env.
 pnpm install --frozen-lockfile
 (cd apps/api && uv sync --frozen)
-docker compose up -d db
+pnpm dev:supabase
+# Copy the printed local publishable key into .env.
+pnpm db:reset
+pnpm db:provision
 pnpm dev:web
 pnpm dev:api
 ```
 
-The web and API commands run in separate terminals. PostgreSQL is available on port `5432` by default.
+The web and API commands run in separate terminals. Supabase Studio, local email capture, Auth,
+and PostgreSQL endpoints are printed after startup. PostgreSQL is available on port `54322` by
+default. The local stack uses generated ES256 signing keys under the ignored `supabase/.temp`
+directory.
 
 ### Complete container stack
 
 ```bash
+pnpm dev:supabase
 docker compose up --build
 ```
 
-Compose waits for PostgreSQL health before starting the API and for API health before starting the web application. The named database volume survives container recreation. `docker compose down` stops the stack; adding `--volumes` deletes local database data and must be used deliberately.
+Compose runs the web and API containers against the host's local Supabase stack. It waits for API
+health before starting the web application. `pnpm supabase:stop` stops Supabase; `pnpm db:reset`
+recreates local application data from committed migrations and seed files and is destructive.
 
 ## Configuration
 
@@ -38,30 +49,58 @@ Compose waits for PostgreSQL health before starting the API and for API health b
 - `LOG_LEVEL`: backend log level
 - `API_PORT`: published backend port for the local Compose stack
 - `API_CORS_ORIGINS`: JSON array of allowed browser origins
+- `APP_URL`: canonical web origin used to build allowlisted Auth confirmation/recovery redirects
+- `API_INTERNAL_URL`: server-to-server FastAPI origin; defaults to `NEXT_PUBLIC_API_URL` for host development
 - `NEXT_PUBLIC_API_URL`: public browser-visible API base URL
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: local database bootstrap
-- `DATABASE_URL`: host-development database connection URL; Compose overrides the hostname for containers
+- `NEXT_PUBLIC_SUPABASE_URL`: browser-visible Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: browser-visible Supabase publishable key; not a secret
+- `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL`, `SUPABASE_JWT_AUDIENCE`: backend token-verification contract
+- `SUPABASE_JWT_LEEWAY_SECONDS`: optional clock-skew allowance from `0` to `300` seconds; defaults to `0`
+- `DATABASE_URL`: least-privilege FastAPI runtime database URL
+- `API_DATABASE_PASSWORD`: local runtime-role provisioning input
+- `API_DATABASE_URL_DOCKER`, `SUPABASE_JWKS_URL_DOCKER`: container-to-host local endpoints
+
+The local `api_login` password is deliberately absent from migrations. `pnpm db:provision` reads
+`API_DATABASE_PASSWORD` from the environment or the ignored root `.env` and sets only that local
+role's password. Production roles and passwords must be provisioned by an approved
+secret-management/release process; do not place them in migrations.
 
 Production configuration must come from the hosting platform's secret/configuration service. Do not bake secrets into images, source files, build arguments, `NEXT_PUBLIC_*`, or CI logs.
+Production startup rejects local/placeholder database and Auth endpoints and requires HTTPS for the
+Supabase issuer and JWKS URL. Hosting-specific URLs, credentials, clock-skew policy, and secret
+delivery remain deployment configuration; this repository does not invent production values.
+
+`APP_URL` must be an origin without a path, query, or fragment. The same production origin and
+`/auth/confirm` callback must be allowlisted in the Supabase Auth project configuration. Cookie
+security, Auth email delivery, SMTP reputation, redirect allowlists, CAPTCHA/rate limits, and custom
+email templates remain environment-specific operational choices; local development uses Mailpit.
 
 ## Container contracts
 
 - The web image is a Next.js standalone production server listening on port `3000`.
+- The web runtime needs `APP_URL`; the three `NEXT_PUBLIC_*` values are browser-visible build inputs.
+- Compose sets `API_INTERNAL_URL=http://api:8000`; production should use its private service origin.
 - The API image runs a non-root user and Uvicorn on port `8000`.
+- `/health` is a process liveness check; `/ready` verifies PostgreSQL connectivity for traffic readiness.
 - Images install dependencies from committed lockfiles.
-- The local database image includes pgvector and is not a production database recommendation.
-- Containers should write logs to stdout/stderr and keep writable state outside the image filesystem.
+- The Supabase CLI stack is for local development only and is not a production database recommendation.
+- The API writes structured JSON application logs to stderr. HTTP entries contain request ID, method,
+  path, status, and duration; they deliberately omit query strings, bodies, credentials, and tokens.
+- Containers keep writable state outside the image filesystem.
 
 For production, pin base images by digest through an explicit dependency-update process. M0 uses readable version tags so the initial stack remains maintainable while the hosting target is undecided.
 
 ## CI gates
 
-GitHub Actions runs independent frontend and backend jobs for pull requests and pushes to `main`:
+GitHub Actions runs independent frontend, backend, and database jobs for pull requests and pushes to
+`main`:
 
-- Frontend: locked install, formatting, ESLint, TypeScript, Vitest coverage, Next.js production build
+- Frontend: locked install, formatting, ESLint, TypeScript, auth-state Vitest coverage, Next.js production build
 - Backend: locked uv sync, Ruff formatting/linting, strict mypy, pytest coverage
+- Database: local Supabase startup, migration reset, SQL lint, pgTAP RLS tests, and
+  FastAPI/PostgreSQL integration tests
 
-Branch protection should require both jobs after the initial workflow has run successfully on GitHub.
+Branch protection should require all three jobs after the workflow has run successfully on GitHub.
 
 ## Production direction
 
@@ -69,7 +108,7 @@ A first production topology should stay small:
 
 - one managed Next.js/web deployment
 - one containerized FastAPI deployment, with horizontal replicas only when needed
-- managed PostgreSQL with pgvector (Supabase is a candidate)
+- managed Supabase PostgreSQL with pgvector; project ownership, region, and plan remain open
 - managed object storage when document ingestion is introduced
 - a worker process from the API codebase only when durable background work exists
 - managed secrets, TLS, centralized logs, metrics, traces, and alerting

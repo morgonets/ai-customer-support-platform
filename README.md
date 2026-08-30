@@ -4,7 +4,9 @@
 
 A production-oriented, multi-tenant customer-support SaaS in development. The platform is intended to let businesses connect a knowledge base and provide grounded AI answers with citations through web chat and Telegram, while retaining conversation history, analytics, and a path to human support.
 
-> **Project status:** Milestone M0 establishes the repository and development foundation. Authentication, knowledge ingestion, RAG, customer chat, Telegram, analytics, billing, and human handoff are planned but are not implemented yet.
+> **Project status:** Milestone M1 authentication and tenant foundations are implemented on this
+> feature branch and awaiting review. Knowledge ingestion, RAG, customer chat, Telegram, analytics,
+> billing, and human handoff remain deferred to later milestones.
 
 ## Why this project exists
 
@@ -29,7 +31,7 @@ The repository starts as a modular monolith with two deployable applications:
 
 - `apps/web`: Next.js and TypeScript user interface
 - `apps/api`: FastAPI and Python backend
-- PostgreSQL with pgvector: transactional and vector data store
+- Supabase PostgreSQL with pgvector: transactional and vector data store
 
 This keeps deployment and local development straightforward while preserving clear internal boundaries for domain logic and external providers. See [architecture](docs/architecture.md), [database](docs/database.md), [API](docs/api.md), and [deployment](docs/deployment.md) for the current design.
 
@@ -53,7 +55,7 @@ This keeps deployment and local development straightforward while preserving cle
 - pnpm 11.19.0
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/) for Python dependency management
-- Docker with Compose for PostgreSQL/pgvector and container validation
+- Docker with Compose for the local Supabase stack and container validation
 
 ## Local setup
 
@@ -63,18 +65,22 @@ cd ai-customer-support-platform
 cp .env.example .env
 ```
 
-Replace every `replace-with-...` value in `.env` before starting containers. Then install dependencies:
+Install dependencies:
 
 ```bash
 pnpm install --frozen-lockfile
 cd apps/api && uv sync --frozen && cd ../..
 ```
 
-Start PostgreSQL:
+Start the local Supabase Auth and PostgreSQL stack:
 
 ```bash
-docker compose up -d db
+pnpm dev:supabase
 ```
+
+Copy the local publishable key shown by the command into `.env`, then provision the runtime
+database login as described in [deployment documentation](docs/deployment.md). Replace every
+remaining `replace-with-...` value before starting an application.
 
 Run the applications in separate terminals:
 
@@ -84,10 +90,13 @@ pnpm dev:api
 ```
 
 - Web: <http://localhost:3000>
+- Local Auth email inbox: <http://127.0.0.1:54324>
 - API health: <http://localhost:8000/health>
+- API readiness: <http://localhost:8000/ready>
 - OpenAPI UI: <http://localhost:8000/docs>
 
-To run the complete local stack in containers instead, use `docker compose up --build`.
+To run the applications in containers, start Supabase first and then use
+`docker compose up --build`.
 
 ## Quality commands
 
@@ -100,7 +109,8 @@ pnpm build          # Production frontend build
 pnpm check          # All non-build quality gates
 ```
 
-CI runs the frontend and backend gates independently on every pull request and on pushes to `main`.
+CI runs independent frontend, backend, and local database-isolation gates on every pull request and
+on pushes to `main`.
 
 ## Documentation
 

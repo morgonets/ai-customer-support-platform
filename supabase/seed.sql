@@ -1,0 +1,2 @@
+-- M1 seed data is intentionally empty.
+-- Tests create deterministic synthetic Auth users and tenant records in isolated transactions.

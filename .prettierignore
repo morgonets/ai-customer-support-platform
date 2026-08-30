@@ -4,4 +4,5 @@ coverage
 htmlcov
 node_modules
 pnpm-lock.yaml
+supabase/.temp
 uv.lock
