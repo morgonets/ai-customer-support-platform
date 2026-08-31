@@ -2,10 +2,11 @@
 
 ## Status
 
-M1 uses Supabase PostgreSQL as the transactional system of record and Supabase Auth as the
+M2 uses Supabase PostgreSQL as the transactional system of record and Supabase Auth as the
 identity store. The committed Supabase SQL migrations create the application schemas, identity
-projection, organizations, memberships, roles, grants, and row-level security policies described
-below. Knowledge, conversation, vector, billing, and analytics tables remain planned.
+projection, organizations, memberships, versioned knowledge sources, grants, and row-level
+security policies described below. Conversation, chunk, vector, billing, and analytics tables
+remain planned.
 
 ## Database role
 
@@ -23,7 +24,7 @@ access.
   tables.
 - `app`: application tables. This schema is not in the Supabase Data API exposed-schema list.
 - `app_private`: trigger and RLS helper functions. It is also not exposed.
-- `public` and `graphql_public`: remain available to Supabase platform components but contain no M1
+- `public` and `graphql_public`: remain available to Supabase platform components but contain no M2
   product tables.
 
 `anon`, `authenticated`, and `service_role` receive no privileges on `app` or `app_private`.
@@ -84,6 +85,56 @@ contract prematurely. Organization deletion is not exposed in M1.
 role checks by organization. A serialized trigger rejects deletion or demotion of the last owner,
 including an Auth user cascade.
 
+## M2 knowledge schema
+
+### `app.knowledge_sources`
+
+This table is the stable logical identity and editable metadata shared by articles and uploaded
+documents.
+
+| Column               | Type          | Rules                                                    |
+| -------------------- | ------------- | -------------------------------------------------------- |
+| `id`                 | `uuid`        | Primary key                                              |
+| `organization_id`    | `uuid`        | Required tenant key; organization deletion is restricted |
+| `kind`               | `text`        | Required: `article` or `document`                        |
+| `title`              | `text`        | Trimmed, 1–200 characters                                |
+| `description`        | `text`        | Optional, trimmed, 1–2,000 characters                    |
+| `created_by_user_id` | `uuid`        | Nullable Auth user audit reference                       |
+| `updated_by_user_id` | `uuid`        | Nullable Auth user audit reference                       |
+| `created_at`         | `timestamptz` | Required, database UTC time                              |
+| `updated_at`         | `timestamptz` | Required, maintained by trigger                          |
+
+The organization foreign key uses `RESTRICT`: deleting a database tenant cannot silently orphan
+files outside PostgreSQL. A future organization-deletion workflow must delete stored files and
+knowledge sources before deleting the organization.
+
+### `app.knowledge_source_versions`
+
+Versions are immutable content identities. Metadata changes update only the source; replacing an
+article body creates a new version and retains the previous one until source deletion.
+
+| Column group         | Columns                                                                      |
+| -------------------- | ---------------------------------------------------------------------------- |
+| Identity             | `id`, `organization_id`, `source_id`, `kind`, `version_number`, `is_current` |
+| Processing           | `status`, `processing_attempts`, `processing_started_at`, `processed_at`     |
+| Text                 | `raw_text`, `normalized_text`, `normalization_version`                       |
+| Source locations     | `locator_map`                                                                |
+| Original file        | `original_filename`, `media_type`, `size_bytes`, `sha256`, `storage_key`     |
+| Extraction           | `extractor_name`, `extractor_version`                                        |
+| Safe failure details | `failure_code`, `failure_message`                                            |
+| Audit                | `created_by_user_id`, `created_at`, `updated_at`                             |
+
+A composite foreign key includes `organization_id`, `source_id`, and `kind`, preventing a version
+from being attached across tenants or source types. Unique indexes enforce one version number and
+at most one current version per source. Ready content is protected by a database trigger; only the
+`is_current` marker may change after readiness.
+
+Article versions contain the authored and normalized text and no file metadata. Document versions
+contain immutable file metadata and no raw text; the original bytes live outside PostgreSQL.
+Normalized content is limited to 2,000,000 characters, article input to 500,000 characters, and
+document metadata records the enforced 10 MiB upload maximum. `locator_map` uses versioned JSON
+character offsets so M3 can map chunks back to pages or text segments.
+
 ## Runtime roles and transaction identity
 
 - `api_login` is the password-bearing FastAPI login. It has no table privileges and does not
@@ -101,7 +152,7 @@ reused. Missing setup fails closed because `api_login` cannot read application t
 
 ## RLS and tenant isolation
 
-All M1 application tables enable and force RLS. Policies are operation-specific and apply only to
+All M1 and M2 application tables enable and force RLS. Policies are operation-specific and apply only to
 `app_api`.
 
 - Profiles: a user may select their own profile and profiles of users who share an organization;
@@ -114,6 +165,13 @@ All M1 application tables enable and force RLS. Policies are operation-specific 
   enforcement.
 - Creation bootstrap: an authenticated creator may add exactly the first owner membership for a
   newly created organization. Organization and membership insertion occur in one API transaction.
+- Knowledge sources and versions: every member may select source metadata and normalized content;
+  only owners and admins may insert, update, or delete knowledge. Repositories still require an
+  organization identifier and use explicit tenant predicates.
+- Original files: `app_api` has no `SELECT` privilege on the `storage_key` column. A narrowly scoped
+  `app_private.knowledge_file_objects` function returns file locations only when the current live
+  membership is `owner` or `admin`. FastAPI independently performs the same role check before
+  download or deletion.
 
 Membership helper functions are `SECURITY DEFINER`, use an empty `search_path`, reference only
 schema-qualified objects, and are executable only by `app_api`. They avoid recursive membership
@@ -134,6 +192,10 @@ Every future tenant-owned table must add, in the same migration:
 - tenant-required repository interfaces and FastAPI authorization tests
 - documented deletion and retention behavior
 
+M3 chunks must reference `organization_id`, `source_id`, and `knowledge_source_version_id`.
+Embedding/indexing generations must not overwrite ready source versions. Citation records should
+store the stable version/chunk identity plus the display/location snapshot needed after deletion.
+
 ## Migration policy
 
 Supabase CLI SQL migrations under `supabase/migrations` are the only schema history. Alembic is not
@@ -143,17 +205,23 @@ used. SQLAlchemy mappings are reviewed against migrations but do not generate a 
 - `pnpm db:reset` must rebuild an empty local database from all migrations and synthetic seeds.
 - `pnpm db:lint` checks database functions and schema objects.
 - `pnpm db:test` runs pgTAP schema, grant, role, invariant, and RLS isolation tests.
-- CI runs all three commands against the local Supabase stack, then runs the FastAPI repository and
-  tenant service against the same PostgreSQL policies inside a rolled-back integration transaction.
+- CI runs all three commands against the local Supabase stack, then runs the FastAPI repositories
+  and domain services against the same PostgreSQL policies inside rolled-back integration
+  transactions.
 - Remote application requires an explicit reviewed `supabase db push --dry-run` followed by a
-  controlled push. M1 does not link or modify a remote project.
+  controlled push. M2 does not link or modify a remote project.
 - Migrations document recovery notes. Once data exists, prefer roll-forward recovery over dropping
   application schemas.
 - Seed data is synthetic, deterministic, and credential-free.
 
 ## Backup, retention, and deletion
 
+Knowledge source deletion is a hard delete. FastAPI deletes every stored object first, treating a
+missing object as already removed, and then deletes the source so versions and normalized content
+cascade. If storage deletion fails, the database source remains for retry. Historical versions are
+retained until source deletion.
+
 Production project, region, plan, backup/PITR, retention, recovery objectives, and offboarding
-policy remain configurable decisions. Before launch, document and test backups, restores, tenant
-export/deletion, Auth user deletion, and measured RPO/RTO. M1 does not invent those production
-values or expose organization deletion.
+policy remain configurable decisions. Before launch, document and test database and object-storage
+backups, restores, tenant export/deletion, Auth user deletion, and measured RPO/RTO. M2 does not
+invent those production values or expose organization deletion.

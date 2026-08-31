@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ProductApiError, productApiRequest } from "./client";
+import { ProductApiError, productApiRequest, productApiResponse } from "./client";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -43,6 +43,28 @@ describe("productApiRequest", () => {
     await expect(productApiRequest("/api/v1/organizations", "token")).resolves.toBeNull();
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(new Headers(init.headers).has("Content-Type")).toBe(false);
+  });
+
+  it("preserves multipart boundaries and caller response preferences", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:8000");
+    const response = new Response("file content", { status: 200 });
+    const fetchMock = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchMock);
+    const body = new FormData();
+    body.set("file", new File(["content"], "guide.txt", { type: "text/plain" }));
+
+    await expect(
+      productApiResponse("/api/v1/organizations/id/knowledge-sources/documents", "token", {
+        method: "POST",
+        body,
+        headers: { Accept: "application/octet-stream" },
+      }),
+    ).resolves.toBe(response);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get("Accept")).toBe("application/octet-stream");
+    expect(headers.has("Content-Type")).toBe(false);
   });
 
   it("returns a stable typed API failure", async () => {

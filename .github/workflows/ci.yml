@@ -125,7 +125,7 @@ jobs:
       - name: Test API persistence and tenant isolation
         working-directory: apps/api
         env:
-          M1_DATABASE_ADMIN_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:54322/postgres
+          INTEGRATION_DATABASE_ADMIN_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:54322/postgres
         run: uv run pytest tests/integration -m integration --no-cov
 
       - name: Stop local Supabase

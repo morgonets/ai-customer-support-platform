@@ -11,7 +11,7 @@ from app.tenants.errors import OrganizationNotFoundError, TenantAuthorizationErr
 from app.tenants.repository import SqlAlchemyTenantRepository
 from app.tenants.service import TenantService
 
-ADMIN_DATABASE_URL = os.getenv("M1_DATABASE_ADMIN_URL")
+ADMIN_DATABASE_URL = os.getenv("INTEGRATION_DATABASE_ADMIN_URL")
 OWNER_ID = UUID("11000000-0000-0000-0000-000000000001")
 ADMIN_ID = UUID("11000000-0000-0000-0000-000000000002")
 MEMBER_ID = UUID("11000000-0000-0000-0000-000000000003")
@@ -22,7 +22,7 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
         ADMIN_DATABASE_URL is None,
-        reason="M1_DATABASE_ADMIN_URL is required for local persistence integration tests",
+        reason="INTEGRATION_DATABASE_ADMIN_URL is required for persistence integration tests",
     ),
 ]
 

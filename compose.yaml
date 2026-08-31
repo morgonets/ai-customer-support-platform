@@ -10,6 +10,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-["http://localhost:3000"]}
       DATABASE_URL: ${API_DATABASE_URL_DOCKER:?Set API_DATABASE_URL_DOCKER in .env}
+      KNOWLEDGE_LOCAL_STORAGE_PATH: /var/lib/ai-support/knowledge
+      KNOWLEDGE_MAX_UPLOAD_BYTES: ${KNOWLEDGE_MAX_UPLOAD_BYTES:-10485760}
+      KNOWLEDGE_MAX_PDF_PAGES: ${KNOWLEDGE_MAX_PDF_PAGES:-100}
+      KNOWLEDGE_PROCESSING_STALE_SECONDS: ${KNOWLEDGE_PROCESSING_STALE_SECONDS:-900}
       SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
       SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER:-http://127.0.0.1:54321/auth/v1}
       SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL_DOCKER:?Set SUPABASE_JWKS_URL_DOCKER in .env}
@@ -17,6 +21,8 @@ services:
       - "${API_PORT:-8000}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - knowledge_data:/var/lib/ai-support/knowledge
     healthcheck:
       test:
         [
@@ -55,3 +61,6 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+
+volumes:
+  knowledge_data:

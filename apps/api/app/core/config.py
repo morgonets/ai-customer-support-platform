@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -22,6 +23,11 @@ class Settings(BaseSettings):
     supabase_jwks_url: str = "http://127.0.0.1:54321/auth/v1/.well-known/jwks.json"
     supabase_jwt_audience: str = "authenticated"
     supabase_jwt_leeway_seconds: int = Field(default=0, ge=0, le=300)
+    knowledge_local_storage_path: Path = Path(".data/knowledge")
+    knowledge_max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=10 * 1024 * 1024)
+    knowledge_max_pdf_pages: int = Field(default=100, ge=1, le=100)
+    knowledge_processing_stale_seconds: int = Field(default=900, ge=60, le=3600)
+    knowledge_allow_local_storage_in_production: bool = False
 
     @model_validator(mode="after")
     def reject_local_defaults_in_production(self) -> "Settings":
@@ -40,6 +46,10 @@ class Settings(BaseSettings):
             raise ValueError("production Supabase JWT issuer must use HTTPS")
         if not self.supabase_jwks_url.startswith("https://"):
             raise ValueError("production Supabase JWKS URL must use HTTPS")
+        if not self.knowledge_allow_local_storage_in_production:
+            raise ValueError("production local knowledge storage requires explicit approval")
+        if not self.knowledge_local_storage_path.is_absolute():
+            raise ValueError("production local knowledge storage path must be absolute")
         return self
 
 

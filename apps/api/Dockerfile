@@ -14,6 +14,7 @@ COPY apps/api/pyproject.toml apps/api/uv.lock ./
 RUN uv sync --frozen --no-dev
 COPY apps/api/app ./app
 RUN addgroup --system --gid 1001 api && adduser --system --uid 1001 --ingroup api api
+RUN install -d -m 0700 -o api -g api /var/lib/ai-support/knowledge
 USER api
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

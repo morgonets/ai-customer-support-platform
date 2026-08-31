@@ -4,18 +4,24 @@
 
 A production-oriented, multi-tenant customer-support SaaS in development. The platform is intended to let businesses connect a knowledge base and provide grounded AI answers with citations through web chat and Telegram, while retaining conversation history, analytics, and a path to human support.
 
-> **Project status:** Milestone M1 authentication and tenant foundations are implemented on this
-> feature branch and awaiting review. Knowledge ingestion, RAG, customer chat, Telegram, analytics,
-> billing, and human handoff remain deferred to later milestones.
+> **Project status:** Milestone M2 knowledge-base lifecycle is implemented on this feature branch
+> and awaiting review. Retrieval, RAG answering, customer chat, Telegram, analytics, billing, and
+> human handoff remain deferred to later milestones.
 
 ## Why this project exists
 
 This public portfolio project demonstrates how to design and deliver an AI-enabled SaaS beyond a prototype: explicit tenant boundaries, provider abstractions, traceable answers, observable operations, tested business logic, reproducible environments, and documentation that evolves with the code.
 
-## Planned capabilities
+## Implemented foundation
 
-- Multi-tenant workspaces and role-based access
-- Knowledge-base upload, processing, and lifecycle management
+- Supabase authentication and organization workspaces with owner/admin/member roles
+- Defense-in-depth tenant isolation through FastAPI authorization and PostgreSQL FORCE RLS
+- Versioned knowledge articles and private document upload, extraction, retry, and deletion
+- Member-readable normalized content with owner/admin-only original-file downloads
+- Persistent local file storage behind a replaceable `ObjectStorage` interface
+
+## Roadmap capabilities
+
 - Retrieval-augmented answers with source citations
 - Embeddable web chat and Telegram support
 - Durable conversation history and feedback
@@ -32,6 +38,7 @@ The repository starts as a modular monolith with two deployable applications:
 - `apps/web`: Next.js and TypeScript user interface
 - `apps/api`: FastAPI and Python backend
 - Supabase PostgreSQL with pgvector: transactional and vector data store
+- Private local filesystem storage for M2 documents; managed object storage remains a production decision
 
 This keeps deployment and local development straightforward while preserving clear internal boundaries for domain logic and external providers. See [architecture](docs/architecture.md), [database](docs/database.md), [API](docs/api.md), and [deployment](docs/deployment.md) for the current design.
 

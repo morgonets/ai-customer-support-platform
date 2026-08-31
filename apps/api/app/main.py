@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.knowledge_errors import knowledge_error_handler
 from app.api.router import api_router
 from app.api.tenant_errors import tenant_error_handler
 from app.core.auth import JwtVerifier
@@ -13,6 +14,9 @@ from app.core.database import Database
 from app.core.errors import ApiError, api_error_handler, validation_error_handler
 from app.core.logging import configure_logging
 from app.core.request_context import RequestContextMiddleware
+from app.knowledge.errors import KnowledgeError
+from app.knowledge.extraction import DocumentExtractor
+from app.knowledge.storage import LocalObjectStorage
 from app.tenants.errors import TenantError
 
 
@@ -38,9 +42,14 @@ def create_app() -> FastAPI:
         jwks_url=settings.supabase_jwks_url,
         leeway_seconds=settings.supabase_jwt_leeway_seconds,
     )
+    application.state.knowledge_storage = LocalObjectStorage(settings.knowledge_local_storage_path)
+    application.state.document_extractor = DocumentExtractor(
+        maximum_pdf_pages=settings.knowledge_max_pdf_pages
+    )
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_exception_handler(TenantError, tenant_error_handler)
+    application.add_exception_handler(KnowledgeError, knowledge_error_handler)
     application.add_middleware(RequestContextMiddleware)
     application.add_middleware(
         CORSMiddleware,
