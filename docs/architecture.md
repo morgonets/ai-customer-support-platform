@@ -2,8 +2,9 @@
 
 ## Status
 
-This document describes the M1 authentication and tenancy architecture plus the intended direction
-for later milestones. Sections marked **planned** are not implemented yet.
+This document describes the implemented M2 authentication, tenancy, and knowledge-base
+architecture plus the intended direction for later milestones. Sections marked **planned** are not
+implemented yet.
 
 ## Architectural drivers
 
@@ -18,7 +19,7 @@ for later milestones. Sections marked **planned** are not implemented yet.
 
 ```mermaid
 flowchart LR
-    customer[Customer] --> webchat[Web chat]
+    customer[Customer] --> webchat[Web chat - planned]
     customer --> telegram[Telegram - planned]
     agent[Support agent] --> web[Next.js web app]
     web --> auth[Supabase Auth]
@@ -27,13 +28,13 @@ flowchart LR
     web --> api
     api --> db[(Supabase PostgreSQL + pgvector)]
     auth --> db
-    api --> storage[Object storage - planned]
+    api --> storage[Private local object storage]
     api --> llm[LLM and embedding providers - planned]
 ```
 
-M1 adds Supabase Auth sessions, authenticated application routes, FastAPI JWT verification,
-organizations, memberships, role authorization, and PostgreSQL RLS. Knowledge, chat, Telegram,
-storage, and model providers remain planned.
+M2 includes Supabase Auth sessions, authenticated application routes, FastAPI JWT verification,
+organizations, memberships, role authorization, PostgreSQL RLS, versioned knowledge sources, and
+private local file storage. Chat, Telegram, managed storage, and model providers remain planned.
 
 ## Repository and deployment units
 
@@ -46,22 +47,27 @@ The repository contains two application boundaries:
   workflows, product persistence, and later retrieval, provider orchestration, and channel adapters.
 
 Supabase PostgreSQL with pgvector is the system of record. Supabase Auth owns credentials and
-sessions; current application roles and memberships remain PostgreSQL data. Object storage and
-external providers will be added behind interfaces when their milestones begin.
+sessions; current application roles, memberships, and knowledge metadata/content remain PostgreSQL
+data. M2 original document bytes use a persistent local-filesystem adapter behind `ObjectStorage`.
+A managed adapter and external AI providers will be added only when their deployment milestones
+have approved credential and tenancy models.
 
-A background worker may later run from the same backend codebase for ingestion and retries. That is a process boundary for operational work, not permission to duplicate domain logic or introduce a separate service prematurely.
+M2 extraction is bounded and synchronous, with blocking parsing moved off the event loop and
+processing state persisted before file work. A background worker may later run from the same
+backend codebase when durable indexing work justifies it. That would be a process boundary for
+operational work, not permission to duplicate domain logic or introduce a separate service.
 
 ## Backend module direction
 
-Product modules are organized by capability rather than technical layer alone. M1 implements the
-`tenants` capability; later directories remain planned:
+Product modules are organized by capability rather than technical layer alone. M2 implements the
+`tenants` and `knowledge` capabilities; later directories remain planned:
 
 ```text
 app/
 ├── api/             # HTTP composition, dependencies, and versioned routers
 ├── core/            # Configuration, observability, security primitives
 ├── tenants/         # Organizations, memberships, tenant context (M1)
-├── knowledge/       # Documents, ingestion, chunks, embeddings (planned)
+├── knowledge/       # Sources, versions, local storage, extraction (M2)
 ├── conversations/   # Conversations, messages, feedback, handoff (planned)
 ├── answering/       # Retrieval, prompting, citations, provider ports (planned)
 └── integrations/    # Telegram and other external adapters (planned)
@@ -81,6 +87,13 @@ layout establishes identity from locally verified asymmetric JWT claims. Confirm
 at `/auth/confirm`, exchange either a PKCE authorization code or an allowlisted email OTP with
 Supabase Auth, and allow only an explicit recovery redirect. Passwords and refresh tokens never pass
 through FastAPI.
+
+M2 adds `/app/{organization_id}/knowledge` and source-detail routes as server-rendered workspaces.
+Typed client modules call FastAPI for every metadata, content, and file operation. Server actions
+perform manager mutations; the download route proxies only safe response headers from FastAPI and
+never exposes a storage key or filesystem path. Members see normalized content, while original-file
+controls are shown only to owners and admins; FastAPI and PostgreSQL remain the authoritative
+enforcement boundaries.
 
 ## Authenticated request flow
 
@@ -110,11 +123,12 @@ FastAPI before redirecting, and a direct foreign organization URL still receives
 Organization roles are deliberately absent from JWT claims so a role change takes effect on the
 next database authorization check rather than waiting for token refresh.
 
-The M1 authorization matrix is deliberately small: owners administer organization settings and all
-roles; admins update organization settings and add/remove members; members have read access; and
-every user may leave an organization. The last-owner database invariant applies regardless of the
-calling role. Permissions remain role-based only until a concrete later requirement justifies a
-more granular model.
+The authorization matrix is deliberately small: owners administer organization settings and all
+roles; admins update organization settings and add/remove members; and every user may leave an
+organization. For knowledge, all members read source metadata and normalized text, while only
+owners and admins create, update, retry, delete, or download original files. The last-owner database
+invariant applies regardless of the calling role. Permissions remain role-based only until a
+concrete later requirement justifies a more granular model.
 
 ## Core request rules
 
@@ -125,17 +139,21 @@ more granular model.
 5. External provider calls receive only the minimum required tenant data.
 6. Responses use stable public identifiers and avoid exposing provider or storage internals.
 
-## Provider boundaries (planned)
+## Provider boundaries
 
-Define narrow ports around capabilities such as text generation, embeddings, object storage, and messaging delivery. Provider adapters translate SDK requests, failures, usage, and retry metadata. Domain/application code chooses behavior such as fallback and no-answer policy without importing vendor SDK types.
+M2 defines a narrow `ObjectStorage` port with a local persistent adapter. Storage keys are generated
+server-side from tenant/source/version identities, and the adapter validates that shape before file
+access. Text generation, embeddings, managed object storage, and messaging delivery remain planned;
+their provider adapters must translate SDK requests and failures without making vendor SDKs domain
+interfaces.
 
 Provider abstraction does not mean every vendor feature must be flattened. Vendor-specific capabilities may be exposed through typed capability checks or configuration where they create product value.
 
 ## Reliability and observability direction
 
-- M1 accepts a valid UUID `X-Request-ID` or generates one, returns it in every HTTP response, and
+- The API accepts a valid UUID `X-Request-ID` or generates one, returns it in every HTTP response, and
   includes it in structured request-completion and failure logs.
-- M1 emits JSON application logs to stderr with method, path, status, and duration, excluding query
+- The API emits JSON application logs to stderr with method, path, status, and duration, excluding query
   strings, request/response bodies, authorization headers, tokens, and unnecessary customer content.
 - Propagate the request/correlation ID through jobs and provider calls when those boundaries arrive.
 - Track latency, failure, token/cost, retrieval, citation, and handoff outcomes.
@@ -160,3 +178,13 @@ These choices should be approved when their milestone has concrete requirements:
 - Licensing and commercial distribution terms
 
 Record hard-to-reverse choices as ADRs in `docs/adr/`.
+
+## Public and future commercial boundaries
+
+The public portfolio keeps the reusable security and product foundation: tenant-aware schema and
+RLS, authorization services, source/version lifecycle, storage and extraction ports, HTTP
+contracts, frontend workspace, tests, and operational documentation. A future private commercial
+core may add proprietary ranking, evaluation data, provider routing, billing policy, enterprise
+integrations, or support operations. Those capabilities should consume the public versioned source
+and normalized-content contracts rather than fork tenant identity, storage authorization, or the
+knowledge lifecycle.

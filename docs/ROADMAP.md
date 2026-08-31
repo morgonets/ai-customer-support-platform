@@ -31,6 +31,8 @@ This roadmap sequences outcomes rather than promising dates. A milestone is comp
 
 ## M2 — Knowledge-base lifecycle
 
+**Implementation status:** complete on `codex/m2-knowledge-base`; awaiting review and merge.
+
 **Goal:** let a workspace safely manage source material.
 
 - Unified, versioned article and uploaded-document sources

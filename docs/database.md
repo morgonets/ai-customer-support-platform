@@ -24,7 +24,7 @@ access.
   tables.
 - `app`: application tables. This schema is not in the Supabase Data API exposed-schema list.
 - `app_private`: trigger and RLS helper functions. It is also not exposed.
-- `public` and `graphql_public`: remain available to Supabase platform components but contain no M1
+- `public` and `graphql_public`: remain available to Supabase platform components but contain no M2
   product tables.
 
 `anon`, `authenticated`, and `service_role` receive no privileges on `app` or `app_private`.
@@ -152,7 +152,7 @@ reused. Missing setup fails closed because `api_login` cannot read application t
 
 ## RLS and tenant isolation
 
-All M1 application tables enable and force RLS. Policies are operation-specific and apply only to
+All M1 and M2 application tables enable and force RLS. Policies are operation-specific and apply only to
 `app_api`.
 
 - Profiles: a user may select their own profile and profiles of users who share an organization;
@@ -209,7 +209,7 @@ used. SQLAlchemy mappings are reviewed against migrations but do not generate a 
   and domain services against the same PostgreSQL policies inside rolled-back integration
   transactions.
 - Remote application requires an explicit reviewed `supabase db push --dry-run` followed by a
-  controlled push. M1 does not link or modify a remote project.
+  controlled push. M2 does not link or modify a remote project.
 - Migrations document recovery notes. Once data exists, prefer roll-forward recovery over dropping
   application schemas.
 - Seed data is synthetic, deterministic, and credential-free.

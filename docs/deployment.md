@@ -108,10 +108,10 @@ For production, pin base images by digest through an explicit dependency-update 
 GitHub Actions runs independent frontend, backend, and database jobs for pull requests and pushes to
 `main`:
 
-- Frontend: locked install, formatting, ESLint, TypeScript, auth-state Vitest coverage, Next.js production build
-- Backend: locked uv sync, Ruff formatting/linting, strict mypy, pytest coverage
+- Frontend: locked install, formatting, ESLint, TypeScript, auth/organization/knowledge Vitest coverage, Next.js production build
+- Backend: locked uv sync, Ruff formatting/linting, strict mypy, knowledge API/storage/extraction pytest coverage
 - Database: local Supabase startup, migration reset, SQL lint, pgTAP RLS tests, and
-  FastAPI/PostgreSQL integration tests
+  FastAPI/PostgreSQL knowledge and tenant integration tests
 
 Branch protection should require all three jobs after the workflow has run successfully on GitHub.
 
