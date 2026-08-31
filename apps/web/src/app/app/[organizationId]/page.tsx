@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { ProductApiError } from "@/lib/api/client";
@@ -59,6 +60,18 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
         </p>
       </section>
 
+      <section className="panel knowledge-entry-panel" aria-labelledby="knowledge-entry-title">
+        <p className="eyebrow">M2 workspace</p>
+        <h2 id="knowledge-entry-title">Knowledge Base</h2>
+        <p>
+          Create versioned articles, process private documents, and inspect the normalized content
+          that will support retrieval in M3.
+        </p>
+        <Link className="primary-link" href={`/app/${organization.id}/knowledge`}>
+          Open Knowledge Base
+        </Link>
+      </section>
+
       <section className="panel membership-panel" aria-labelledby="members-title">
         <div className="section-heading">
           <div>
@@ -79,7 +92,7 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
           ))}
         </ul>
         <p className="field-hint">
-          Email invitations and polished member administration are intentionally deferred in M1.
+          Email invitations and polished member administration remain outside the current scope.
         </p>
       </section>
 

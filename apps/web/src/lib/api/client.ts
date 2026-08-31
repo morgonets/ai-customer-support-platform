@@ -41,15 +41,17 @@ async function responsePayload(response: Response): Promise<unknown> {
   }
 }
 
-export async function productApiRequest(
+export async function productApiResponse(
   path: `/${string}`,
   accessToken: string,
   init: RequestInit = {},
-): Promise<unknown> {
+): Promise<Response> {
   const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json");
+  }
   headers.set("Authorization", `Bearer ${accessToken}`);
-  if (init.body !== undefined) {
+  if (init.body !== undefined && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
@@ -57,10 +59,20 @@ export async function productApiRequest(
     cache: "no-store",
     headers,
   });
-  const payload = await responsePayload(response);
   if (!response.ok) {
+    const payload = await responsePayload(response);
     const error = publicError(payload);
     throw new ProductApiError(response.status, error.code, error.request_id);
   }
+  return response;
+}
+
+export async function productApiRequest(
+  path: `/${string}`,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<unknown> {
+  const response = await productApiResponse(path, accessToken, init);
+  const payload = await responsePayload(response);
   return payload;
 }

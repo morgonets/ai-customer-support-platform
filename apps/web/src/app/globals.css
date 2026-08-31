@@ -44,7 +44,8 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -80,7 +81,8 @@ button:hover,
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgb(126 240 196 / 45%);
   outline-offset: 2px;
 }
@@ -217,13 +219,24 @@ h2 {
 }
 
 .stack-form input,
-.stack-form select {
+.stack-form select,
+.stack-form textarea {
   min-height: 3rem;
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--border);
   border-radius: 0.65rem;
   color: var(--text);
   background: #081411;
+}
+
+.stack-form textarea {
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.stack-form input[type="file"] {
+  min-height: auto;
+  padding: 0.8rem;
 }
 
 .stack-form button {
@@ -244,6 +257,14 @@ h2 {
   border-radius: 0.65rem;
   color: var(--danger);
   background: rgb(95 27 23 / 30%);
+}
+
+.form-notice {
+  padding: 0.8rem;
+  border: 1px solid rgb(126 240 196 / 35%);
+  border-radius: 0.65rem;
+  color: var(--accent);
+  background: rgb(20 90 67 / 24%);
 }
 
 .field-hint,
@@ -400,6 +421,287 @@ h2 {
   text-transform: uppercase;
 }
 
+.knowledge-entry-panel {
+  width: 100%;
+  max-width: none;
+  align-self: start;
+}
+
+.knowledge-entry-panel h2 {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.knowledge-workspace,
+.knowledge-detail {
+  display: grid;
+  gap: 2rem;
+}
+
+.knowledge-hero,
+.knowledge-detail-header {
+  max-width: 58rem;
+}
+
+.knowledge-hero h1,
+.knowledge-detail-header h1 {
+  margin: 0.75rem 0 1rem;
+  font-size: clamp(3rem, 8vw, 6rem);
+  line-height: 0.92;
+  letter-spacing: -0.055em;
+}
+
+.knowledge-hero > p:last-child,
+.knowledge-detail-header > p {
+  max-width: 48rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.back-link {
+  display: inline-flex;
+  margin-bottom: 2.5rem;
+  color: var(--muted);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--accent);
+}
+
+.knowledge-creation-grid,
+.knowledge-management-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.knowledge-form-panel,
+.readonly-panel,
+.danger-panel {
+  width: 100%;
+  max-width: none;
+}
+
+.knowledge-form-panel h2,
+.readonly-panel h2,
+.danger-panel h2,
+.knowledge-library h2,
+.knowledge-content h2,
+.processing-failure h2 {
+  font-size: clamp(1.75rem, 4vw, 2.6rem);
+}
+
+.knowledge-library,
+.knowledge-content,
+.processing-failure,
+.processing-state,
+.document-actions {
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: rgb(13 27 24 / 82%);
+}
+
+.knowledge-library-heading {
+  margin-bottom: 1.5rem;
+}
+
+.knowledge-filters {
+  display: grid;
+  grid-template-columns: auto minmax(9rem, 1fr) auto minmax(9rem, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.knowledge-filters label {
+  font-weight: 700;
+}
+
+.knowledge-filters select {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  color: var(--text);
+  background: #081411;
+}
+
+.knowledge-source-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-source-list li {
+  min-width: 0;
+}
+
+.knowledge-source-list a {
+  display: grid;
+  height: 100%;
+  gap: 0.8rem;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  color: var(--text);
+  background: #091612;
+  text-decoration: none;
+}
+
+.knowledge-source-list a:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.knowledge-source-list h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.knowledge-source-list p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.knowledge-source-heading,
+.source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.source-kind,
+.status-badge,
+.source-meta span,
+.source-meta time {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.source-kind,
+.status-badge {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.source-kind {
+  color: var(--accent);
+}
+
+.status-ready {
+  color: #9cf5d3;
+  border-color: rgb(126 240 196 / 45%);
+}
+
+.status-processing {
+  color: #ffe29a;
+  border-color: rgb(255 226 154 / 45%);
+}
+
+.status-failed {
+  color: var(--danger);
+  border-color: rgb(255 179 170 / 45%);
+}
+
+.source-meta {
+  margin-top: auto;
+  color: var(--muted);
+}
+
+.knowledge-empty {
+  padding: 2rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.9rem;
+  text-align: center;
+}
+
+.knowledge-empty h2 {
+  margin-inline: auto;
+}
+
+.pagination-link {
+  margin-top: 1.5rem;
+}
+
+.knowledge-detail-header .knowledge-source-heading {
+  margin-bottom: 1rem;
+}
+
+.processing-failure {
+  border-color: rgb(255 179 170 / 35%);
+  background: rgb(95 27 23 / 22%);
+}
+
+.processing-state {
+  color: #ffe29a;
+}
+
+.processing-state p,
+.document-actions p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.knowledge-content pre {
+  max-height: 42rem;
+  overflow: auto;
+  margin: 1.5rem 0 0;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  color: #dff5ed;
+  background: #07110f;
+  font:
+    0.92rem/1.65 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.danger-panel {
+  border-color: rgb(255 179 170 / 30%);
+}
+
+.confirmation-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.confirmation-field input {
+  min-height: 1.2rem;
+  margin-top: 0.2rem;
+}
+
+.danger-button {
+  border-color: #ff8f82;
+  color: #2d0805;
+  background: #ffada3;
+}
+
 @media (max-width: 720px) {
   .foundation {
     grid-template-columns: 1fr;
@@ -416,6 +718,17 @@ h2 {
 
   .workspace-grid {
     grid-template-columns: 1fr;
+  }
+
+  .knowledge-creation-grid,
+  .knowledge-management-grid,
+  .knowledge-source-list {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-filters {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .organization-switcher {
