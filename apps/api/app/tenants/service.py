@@ -5,6 +5,7 @@ from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.tenants.authorization import TenantAuthorizer
 from app.tenants.errors import (
     LastOwnerRequiredError,
     MembershipAlreadyExistsError,
@@ -13,7 +14,7 @@ from app.tenants.errors import (
     OrganizationNotFoundError,
     TenantAuthorizationError,
 )
-from app.tenants.models import Membership, Organization, OrganizationRole, TenantContext
+from app.tenants.models import Membership, Organization, OrganizationRole
 from app.tenants.repository import TenantRepository
 
 
@@ -22,6 +23,7 @@ class TenantService:
         self, repository: TenantRepository, id_factory: Callable[[], UUID] = uuid4
     ) -> None:
         self._repository = repository
+        self._authorizer = TenantAuthorizer(repository)
         self._id_factory = id_factory
 
     async def list_organizations(
@@ -49,8 +51,10 @@ class TenantService:
     async def update_organization(
         self, session: AsyncSession, actor_user_id: UUID, organization_id: UUID, name: str
     ) -> Organization:
-        context = await self._tenant_context(session, actor_user_id, organization_id)
-        self._require_role(context, "owner", "admin")
+        context = await self._authorizer.require_context(
+            session, actor_user_id=actor_user_id, organization_id=organization_id
+        )
+        self._authorizer.require_role(context, "owner", "admin")
         organization = await self._repository.update_organization_name(
             session, organization_id, actor_user_id, name
         )
@@ -61,7 +65,9 @@ class TenantService:
     async def list_memberships(
         self, session: AsyncSession, actor_user_id: UUID, organization_id: UUID
     ) -> Sequence[Membership]:
-        await self._tenant_context(session, actor_user_id, organization_id)
+        await self._authorizer.require_context(
+            session, actor_user_id=actor_user_id, organization_id=organization_id
+        )
         return await self._repository.list_memberships(session, organization_id)
 
     async def create_membership(
@@ -72,7 +78,9 @@ class TenantService:
         user_id: UUID,
         role: OrganizationRole,
     ) -> Membership:
-        context = await self._tenant_context(session, actor_user_id, organization_id)
+        context = await self._authorizer.require_context(
+            session, actor_user_id=actor_user_id, organization_id=organization_id
+        )
         if context.role == "member" or (context.role == "admin" and role != "member"):
             raise TenantAuthorizationError
         try:
@@ -94,8 +102,10 @@ class TenantService:
         membership_id: UUID,
         role: OrganizationRole,
     ) -> Membership:
-        context = await self._tenant_context(session, actor_user_id, organization_id)
-        self._require_role(context, "owner")
+        context = await self._authorizer.require_context(
+            session, actor_user_id=actor_user_id, organization_id=organization_id
+        )
+        self._authorizer.require_role(context, "owner")
         await self._target_membership(session, organization_id, membership_id)
         try:
             membership = await self._repository.update_membership_role(
@@ -116,7 +126,9 @@ class TenantService:
         organization_id: UUID,
         membership_id: UUID,
     ) -> None:
-        context = await self._tenant_context(session, actor_user_id, organization_id)
+        context = await self._authorizer.require_context(
+            session, actor_user_id=actor_user_id, organization_id=organization_id
+        )
         target = await self._target_membership(session, organization_id, membership_id)
         is_self = target.user_id == actor_user_id
         may_remove = (
@@ -137,19 +149,6 @@ class TenantService:
         if not deleted:
             raise MembershipNotFoundError
 
-    async def _tenant_context(
-        self, session: AsyncSession, actor_user_id: UUID, organization_id: UUID
-    ) -> TenantContext:
-        membership = await self._repository.get_membership(session, organization_id, actor_user_id)
-        if membership is None:
-            raise OrganizationNotFoundError
-        return TenantContext(
-            organization_id=organization_id,
-            actor_membership_id=membership.id,
-            actor_user_id=actor_user_id,
-            role=membership.role,
-        )
-
     async def _target_membership(
         self, session: AsyncSession, organization_id: UUID, membership_id: UUID
     ) -> Membership:
@@ -159,8 +158,3 @@ class TenantService:
         if membership is None:
             raise MembershipNotFoundError
         return membership
-
-    @staticmethod
-    def _require_role(context: TenantContext, *allowed_roles: OrganizationRole) -> None:
-        if context.role not in allowed_roles:
-            raise TenantAuthorizationError

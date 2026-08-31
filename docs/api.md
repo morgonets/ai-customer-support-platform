@@ -2,8 +2,9 @@
 
 ## Status
 
-M1 exposes operational health/readiness checks, the authenticated current user, and organization
-and membership management. FastAPI is the exclusive product-data API.
+M2 extends the M1 operational, identity, and organization contracts with organization-scoped,
+versioned knowledge articles. Document upload and original-file endpoints are added by the
+subsequent M2 ingestion phase. FastAPI remains the exclusive product-data and file-access API.
 
 ## Operational endpoints
 
@@ -143,6 +144,33 @@ Tenant failures use these stable codes:
 - `404 membership_user_not_found` when the UUID supplied by an authorized manager is not an Auth user;
 - `409 membership_already_exists` for a duplicate organization/user membership;
 - `409 last_owner_required` when a mutation would leave no owner.
+
+## Knowledge article endpoints
+
+Knowledge paths are nested under the authorized organization. Organization and source UUIDs select
+among records visible to the caller and never grant access.
+
+| Method  | Path                                                                            | Required role           | Result                                       |
+| ------- | ------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------- |
+| `GET`   | `/api/v1/organizations/{organization_id}/knowledge-sources`                     | Any organization member | Cursor-paginated source metadata             |
+| `POST`  | `/api/v1/organizations/{organization_id}/knowledge-sources/articles`            | Owner or admin          | Creates a ready article and version          |
+| `GET`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Any organization member | Source and current-version metadata          |
+| `GET`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/content` | Any organization member | Authored and normalized content plus offsets |
+| `PATCH` | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Owner or admin          | Updates title and/or description             |
+| `PUT`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/content` | Owner or admin          | Creates a new current article version        |
+
+The collection accepts `limit` from 1–100, an opaque `cursor`, and optional `kind` and
+`processing_status` filters. Results are ordered by source creation time and UUID descending and
+return `{ "items": [...], "next_cursor": "..." }`.
+
+Titles are trimmed and contain 1–200 characters. Descriptions are optional and contain at most
+2,000 characters. Article input contains at most 500,000 characters; normalization rejects content
+that becomes empty. Replacing article content retains the previous immutable version.
+
+Foreign and absent source identifiers both return `404 knowledge_source_not_found`. Knowledge
+errors additionally use `invalid_cursor`, `invalid_knowledge_content`,
+`normalized_content_too_large`, `knowledge_source_kind_mismatch`, and
+`knowledge_content_unavailable` as documented by the OpenAPI responses and tests.
 
 The indistinguishable organization `404` is deliberate: foreign organization IDs do not reveal
 whether another tenant exists.
