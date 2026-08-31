@@ -1,15 +1,21 @@
 import asyncio
+import hashlib
 import json
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID
 
 import pytest
+from anyio import to_thread
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.knowledge.extraction import DocumentExtractor
+from app.knowledge.models import ValidatedUpload
 from app.knowledge.repository import SqlAlchemyKnowledgeRepository
 from app.knowledge.service import KnowledgeService
+from app.knowledge.storage import LocalObjectStorage
 from app.tenants.authorization import TenantAuthorizer
 from app.tenants.errors import OrganizationNotFoundError, TenantAuthorizationError
 from app.tenants.repository import SqlAlchemyTenantRepository
@@ -24,6 +30,8 @@ ORGANIZATION_ID = UUID("62000000-0000-0000-0000-000000000001")
 SOURCE_ID = UUID("64000000-0000-0000-0000-000000000001")
 VERSION_ID = UUID("65000000-0000-0000-0000-000000000001")
 SECOND_VERSION_ID = UUID("65000000-0000-0000-0000-000000000002")
+DOCUMENT_SOURCE_ID = UUID("64000000-0000-0000-0000-000000000002")
+DOCUMENT_VERSION_ID = UUID("65000000-0000-0000-0000-000000000003")
 NOW = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
 
 pytestmark = [
@@ -44,13 +52,15 @@ async def _assume_actor(session: AsyncSession, user_id: UUID) -> None:
     await session.execute(text("set local role app_api"))
 
 
-async def _exercise_knowledge_persistence() -> None:
+async def _exercise_knowledge_persistence(upload_path: Path, storage_path: Path) -> None:
     assert ADMIN_DATABASE_URL is not None
     engine = create_async_engine(ADMIN_DATABASE_URL)
     session = AsyncSession(engine, expire_on_commit=False)
     transaction = await session.begin()
     tenant_repository = SqlAlchemyTenantRepository()
-    generated_ids = iter([SOURCE_ID, VERSION_ID, SECOND_VERSION_ID])
+    generated_ids = iter(
+        [SOURCE_ID, VERSION_ID, SECOND_VERSION_ID, DOCUMENT_SOURCE_ID, DOCUMENT_VERSION_ID]
+    )
     service = KnowledgeService(
         SqlAlchemyKnowledgeRepository(),
         TenantAuthorizer(tenant_repository),
@@ -148,6 +158,69 @@ async def _exercise_knowledge_persistence() -> None:
         )
         assert replaced.current_version.version_number == 2
 
+        document_bytes = b"Document integration content"
+        document, file_object = await service.create_document_processing(
+            session,
+            actor_user_id=OWNER_ID,
+            organization_id=ORGANIZATION_ID,
+            title="Integration document",
+            description=None,
+            original_filename="integration.txt",
+            media_type="text/plain",
+            size_bytes=len(document_bytes),
+            sha256=hashlib.sha256(document_bytes).hexdigest(),
+        )
+        assert document.current_version.status == "processing"
+        storage = LocalObjectStorage(storage_path)
+        await storage.put(file_object.storage_key, upload_path)
+        extracted = await DocumentExtractor(maximum_pdf_pages=100).extract(
+            ValidatedUpload(
+                temporary_path=str(upload_path),
+                original_filename="integration.txt",
+                media_type="text/plain",
+                size_bytes=len(document_bytes),
+                sha256=hashlib.sha256(document_bytes).hexdigest(),
+            )
+        )
+        ready_document = await service.mark_document_ready(
+            session,
+            actor_user_id=OWNER_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=DOCUMENT_SOURCE_ID,
+            extracted=extracted,
+        )
+        assert ready_document.current_version.normalized_text == document_bytes.decode()
+
+        await _assume_actor(session, MEMBER_ID)
+        member_content = await service.get_content(
+            session,
+            actor_user_id=MEMBER_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=DOCUMENT_SOURCE_ID,
+        )
+        assert member_content.current_version.normalized_text == document_bytes.decode()
+        with pytest.raises(TenantAuthorizationError):
+            await service.get_file_for_download(
+                session,
+                actor_user_id=MEMBER_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=DOCUMENT_SOURCE_ID,
+            )
+
+        await _assume_actor(session, ADMIN_ID)
+        downloadable = await service.get_file_for_download(
+            session,
+            actor_user_id=ADMIN_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=DOCUMENT_SOURCE_ID,
+        )
+        stream = await storage.open(downloadable.storage_key)
+        try:
+            assert await to_thread.run_sync(stream.read) == document_bytes
+        finally:
+            await to_thread.run_sync(stream.close)
+        await storage.delete(downloadable.storage_key)
+
         await _assume_actor(session, OUTSIDER_ID)
         with pytest.raises(OrganizationNotFoundError):
             await service.get_source(
@@ -162,5 +235,9 @@ async def _exercise_knowledge_persistence() -> None:
         await engine.dispose()
 
 
-def test_article_lifecycle_enforces_database_and_service_tenant_boundaries() -> None:
-    asyncio.run(_exercise_knowledge_persistence())
+def test_knowledge_lifecycle_enforces_database_storage_and_tenant_boundaries(
+    tmp_path: Path,
+) -> None:
+    upload_path = tmp_path / "integration.txt"
+    upload_path.write_bytes(b"Document integration content")
+    asyncio.run(_exercise_knowledge_persistence(upload_path, tmp_path / "storage"))

@@ -9,6 +9,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.models import (
+    KnowledgeFileObject,
     KnowledgeProcessingStatus,
     KnowledgeSource,
     KnowledgeSourceKind,
@@ -72,6 +73,65 @@ class KnowledgeRepository(Protocol):
         locator_map: dict[str, object],
         processed_at: datetime,
     ) -> KnowledgeSource | None: ...
+
+    async def create_document_processing(
+        self,
+        session: AsyncSession,
+        *,
+        source_id: UUID,
+        version_id: UUID,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        title: str,
+        description: str | None,
+        original_filename: str,
+        media_type: str,
+        size_bytes: int,
+        sha256: str,
+        storage_key: str,
+        processing_started_at: datetime,
+    ) -> KnowledgeSource: ...
+
+    async def mark_document_ready(
+        self,
+        session: AsyncSession,
+        *,
+        organization_id: UUID,
+        source_id: UUID,
+        normalized_text: str,
+        locator_map: dict[str, object],
+        extractor_name: str,
+        extractor_version: str,
+        processed_at: datetime,
+    ) -> KnowledgeSource | None: ...
+
+    async def mark_document_failed(
+        self,
+        session: AsyncSession,
+        *,
+        organization_id: UUID,
+        source_id: UUID,
+        failure_code: str,
+        failure_message: str,
+        processed_at: datetime,
+    ) -> KnowledgeSource | None: ...
+
+    async def begin_document_retry(
+        self,
+        session: AsyncSession,
+        *,
+        organization_id: UUID,
+        source_id: UUID,
+        processing_started_at: datetime,
+    ) -> KnowledgeSource | None: ...
+
+    async def get_file_objects(
+        self, session: AsyncSession, organization_id: UUID, source_id: UUID
+    ) -> Sequence[KnowledgeFileObject]: ...
+
+    async def delete_source(
+        self, session: AsyncSession, organization_id: UUID, source_id: UUID
+    ) -> bool: ...
 
 
 class SqlAlchemyKnowledgeRepository:
@@ -296,6 +356,240 @@ class SqlAlchemyKnowledgeRepository:
             processed_at=processed_at,
         )
         return await self.get_source(session, organization_id, source_id)
+
+    async def create_document_processing(
+        self,
+        session: AsyncSession,
+        *,
+        source_id: UUID,
+        version_id: UUID,
+        organization_id: UUID,
+        actor_user_id: UUID,
+        title: str,
+        description: str | None,
+        original_filename: str,
+        media_type: str,
+        size_bytes: int,
+        sha256: str,
+        storage_key: str,
+        processing_started_at: datetime,
+    ) -> KnowledgeSource:
+        await session.execute(
+            text(
+                """
+                insert into app.knowledge_sources (
+                  id, organization_id, kind, title, description,
+                  created_by_user_id, updated_by_user_id
+                )
+                values (
+                  :source_id, :organization_id, 'document', :title, :description,
+                  :actor_user_id, :actor_user_id
+                )
+                """
+            ),
+            {
+                "source_id": source_id,
+                "organization_id": organization_id,
+                "title": title,
+                "description": description,
+                "actor_user_id": actor_user_id,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                insert into app.knowledge_source_versions (
+                  id, organization_id, source_id, kind, version_number, status,
+                  original_filename, media_type, size_bytes, sha256, storage_key,
+                  processing_attempts, processing_started_at, created_by_user_id
+                )
+                values (
+                  :version_id, :organization_id, :source_id, 'document', 1, 'processing',
+                  :original_filename, :media_type, :size_bytes, :sha256, :storage_key,
+                  1, :processing_started_at, :actor_user_id
+                )
+                """
+            ),
+            {
+                "version_id": version_id,
+                "organization_id": organization_id,
+                "source_id": source_id,
+                "original_filename": original_filename,
+                "media_type": media_type,
+                "size_bytes": size_bytes,
+                "sha256": sha256,
+                "storage_key": storage_key,
+                "processing_started_at": processing_started_at,
+                "actor_user_id": actor_user_id,
+            },
+        )
+        source = await self.get_source(session, organization_id, source_id)
+        if source is None:
+            raise RuntimeError("created knowledge document is not visible")
+        return source
+
+    async def mark_document_ready(
+        self,
+        session: AsyncSession,
+        *,
+        organization_id: UUID,
+        source_id: UUID,
+        normalized_text: str,
+        locator_map: dict[str, object],
+        extractor_name: str,
+        extractor_version: str,
+        processed_at: datetime,
+    ) -> KnowledgeSource | None:
+        result = await session.execute(
+            text(
+                """
+                update app.knowledge_source_versions
+                set status = 'ready',
+                    normalized_text = :normalized_text,
+                    locator_map = cast(:locator_map as jsonb),
+                    extractor_name = :extractor_name,
+                    extractor_version = :extractor_version,
+                    processed_at = :processed_at,
+                    failure_code = null,
+                    failure_message = null
+                where organization_id = :organization_id
+                  and source_id = :source_id
+                  and kind = 'document'
+                  and is_current
+                  and status = 'processing'
+                returning id
+                """
+            ),
+            {
+                "organization_id": organization_id,
+                "source_id": source_id,
+                "normalized_text": normalized_text,
+                "locator_map": json.dumps(locator_map, separators=(",", ":")),
+                "extractor_name": extractor_name,
+                "extractor_version": extractor_version,
+                "processed_at": processed_at,
+            },
+        )
+        if result.scalar_one_or_none() is None:
+            return None
+        return await self.get_source(session, organization_id, source_id)
+
+    async def mark_document_failed(
+        self,
+        session: AsyncSession,
+        *,
+        organization_id: UUID,
+        source_id: UUID,
+        failure_code: str,
+        failure_message: str,
+        processed_at: datetime,
+    ) -> KnowledgeSource | None:
+        result = await session.execute(
+            text(
+                """
+                update app.knowledge_source_versions
+                set status = 'failed',
+                    normalized_text = null,
+                    locator_map = null,
+                    extractor_name = null,
+                    extractor_version = null,
+                    processed_at = :processed_at,
+                    failure_code = :failure_code,
+                    failure_message = :failure_message
+                where organization_id = :organization_id
+                  and source_id = :source_id
+                  and kind = 'document'
+                  and is_current
+                  and status = 'processing'
+                returning id
+                """
+            ),
+            {
+                "organization_id": organization_id,
+                "source_id": source_id,
+                "failure_code": failure_code,
+                "failure_message": failure_message,
+                "processed_at": processed_at,
+            },
+        )
+        if result.scalar_one_or_none() is None:
+            return None
+        return await self.get_source(session, organization_id, source_id)
+
+    async def begin_document_retry(
+        self,
+        session: AsyncSession,
+        *,
+        organization_id: UUID,
+        source_id: UUID,
+        processing_started_at: datetime,
+    ) -> KnowledgeSource | None:
+        result = await session.execute(
+            text(
+                """
+                update app.knowledge_source_versions
+                set status = 'processing',
+                    processing_attempts = processing_attempts + 1,
+                    processing_started_at = :processing_started_at,
+                    processed_at = null,
+                    failure_code = null,
+                    failure_message = null
+                where organization_id = :organization_id
+                  and source_id = :source_id
+                  and kind = 'document'
+                  and is_current
+                  and status in ('processing', 'failed')
+                returning id
+                """
+            ),
+            {
+                "organization_id": organization_id,
+                "source_id": source_id,
+                "processing_started_at": processing_started_at,
+            },
+        )
+        if result.scalar_one_or_none() is None:
+            return None
+        return await self.get_source(session, organization_id, source_id)
+
+    async def get_file_objects(
+        self, session: AsyncSession, organization_id: UUID, source_id: UUID
+    ) -> Sequence[KnowledgeFileObject]:
+        result = await session.execute(
+            text(
+                """
+                select version_id, storage_key, original_filename, media_type, size_bytes
+                from app_private.knowledge_file_objects(:organization_id, :source_id)
+                """
+            ),
+            {"organization_id": organization_id, "source_id": source_id},
+        )
+        return [
+            KnowledgeFileObject(
+                version_id=cast(UUID, row["version_id"]),
+                storage_key=cast(str, row["storage_key"]),
+                original_filename=cast(str, row["original_filename"]),
+                media_type=cast(str, row["media_type"]),
+                size_bytes=cast(int, row["size_bytes"]),
+            )
+            for row in result.mappings().all()
+        ]
+
+    async def delete_source(
+        self, session: AsyncSession, organization_id: UUID, source_id: UUID
+    ) -> bool:
+        result = await session.execute(
+            text(
+                """
+                delete from app.knowledge_sources
+                where organization_id = :organization_id
+                  and id = :source_id
+                returning id
+                """
+            ),
+            {"organization_id": organization_id, "source_id": source_id},
+        )
+        return result.scalar_one_or_none() is not None
 
     @staticmethod
     async def _insert_article_version(

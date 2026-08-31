@@ -15,6 +15,8 @@ from app.core.errors import ApiError, api_error_handler, validation_error_handle
 from app.core.logging import configure_logging
 from app.core.request_context import RequestContextMiddleware
 from app.knowledge.errors import KnowledgeError
+from app.knowledge.extraction import DocumentExtractor
+from app.knowledge.storage import LocalObjectStorage
 from app.tenants.errors import TenantError
 
 
@@ -39,6 +41,10 @@ def create_app() -> FastAPI:
         audience=settings.supabase_jwt_audience,
         jwks_url=settings.supabase_jwks_url,
         leeway_seconds=settings.supabase_jwt_leeway_seconds,
+    )
+    application.state.knowledge_storage = LocalObjectStorage(settings.knowledge_local_storage_path)
+    application.state.document_extractor = DocumentExtractor(
+        maximum_pdf_pages=settings.knowledge_max_pdf_pages
     )
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)

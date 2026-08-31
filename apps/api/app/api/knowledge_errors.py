@@ -8,8 +8,14 @@ from app.knowledge.errors import (
     KnowledgeContentTooLargeError,
     KnowledgeContentUnavailableError,
     KnowledgeError,
+    KnowledgeFileTooLargeError,
+    KnowledgeInvalidDocumentError,
+    KnowledgeProcessingInProgressError,
+    KnowledgeProcessingNotRetryableError,
     KnowledgeSourceKindError,
     KnowledgeSourceNotFoundError,
+    KnowledgeStorageUnavailableError,
+    KnowledgeUnsupportedMediaTypeError,
 )
 
 
@@ -51,6 +57,42 @@ async def knowledge_error_handler(request: Request, exc: Exception) -> JSONRespo
             status_code=409,
             code="knowledge_content_unavailable",
             message="Normalized knowledge content is not available.",
+        )
+    elif isinstance(exc, KnowledgeFileTooLargeError):
+        api_error = ApiError(
+            status_code=413,
+            code="file_too_large",
+            message="The uploaded file is too large.",
+        )
+    elif isinstance(exc, KnowledgeUnsupportedMediaTypeError):
+        api_error = ApiError(
+            status_code=415,
+            code="unsupported_media_type",
+            message="The uploaded file type is not supported.",
+        )
+    elif isinstance(exc, KnowledgeInvalidDocumentError):
+        api_error = ApiError(
+            status_code=422,
+            code="invalid_document",
+            message="The uploaded document is invalid.",
+        )
+    elif isinstance(exc, KnowledgeStorageUnavailableError):
+        api_error = ApiError(
+            status_code=503,
+            code="storage_unavailable",
+            message="Knowledge file storage is unavailable.",
+        )
+    elif isinstance(exc, KnowledgeProcessingInProgressError):
+        api_error = ApiError(
+            status_code=409,
+            code="processing_in_progress",
+            message="The knowledge source is already being processed.",
+        )
+    elif isinstance(exc, KnowledgeProcessingNotRetryableError):
+        api_error = ApiError(
+            status_code=409,
+            code="processing_not_retryable",
+            message="The knowledge source is not eligible for retry.",
         )
     else:  # pragma: no cover - forces explicit review for every new knowledge error.
         raise exc

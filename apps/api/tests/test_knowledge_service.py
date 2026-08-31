@@ -11,10 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.knowledge.errors import (
     InvalidKnowledgeCursorError,
     KnowledgeContentUnavailableError,
+    KnowledgeProcessingInProgressError,
+    KnowledgeProcessingNotRetryableError,
     KnowledgeSourceKindError,
     KnowledgeSourceNotFoundError,
+    KnowledgeStorageUnavailableError,
 )
 from app.knowledge.models import (
+    ExtractedContent,
+    KnowledgeFileObject,
     KnowledgeProcessingStatus,
     KnowledgeSource,
     KnowledgeSourceKind,
@@ -85,7 +90,7 @@ def _source(
             extractor_name="manual",
             extractor_version="1",
             processing_attempts=0 if kind == "article" else 1,
-            processing_started_at=None,
+            processing_started_at=NOW if status == "processing" else None,
             processed_at=NOW if status != "processing" else None,
             failure_code="failed" if status == "failed" else None,
             failure_message="Failed" if status == "failed" else None,
@@ -337,5 +342,283 @@ def test_replace_article_content_creates_version_and_rejects_document() -> None:
                 organization_id=ORGANIZATION_ID,
                 source_id=SOURCE_ID,
                 raw_text="Replacement",
+            )
+        )
+
+
+def _file_object(version_id: UUID = VERSION_ID) -> KnowledgeFileObject:
+    return KnowledgeFileObject(
+        version_id=version_id,
+        storage_key=f"{ORGANIZATION_ID}/{SOURCE_ID}/{version_id}/content",
+        original_filename="guide.pdf",
+        media_type="application/pdf",
+        size_bytes=100,
+    )
+
+
+def test_create_processing_document_builds_server_owned_file_identity() -> None:
+    service, repository_mock, session = _service("admin")
+    repository_mock.create_document_processing.return_value = _source(
+        source_id=NEW_SOURCE_ID, kind="document", status="processing"
+    )
+
+    source, file_object = asyncio.run(
+        service.create_document_processing(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            title="Guide",
+            description=None,
+            original_filename="guide.pdf",
+            media_type="application/pdf",
+            size_bytes=100,
+            sha256="a" * 64,
+        )
+    )
+
+    assert source.kind == "document"
+    assert file_object.version_id == NEW_VERSION_ID
+    assert file_object.storage_key == (
+        f"{ORGANIZATION_ID}/{NEW_SOURCE_ID}/{NEW_VERSION_ID}/content"
+    )
+
+    denied, _, denied_session = _service("member")
+    with pytest.raises(TenantAuthorizationError):
+        asyncio.run(
+            denied.create_document_processing(
+                denied_session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                title="Denied",
+                description=None,
+                original_filename="guide.pdf",
+                media_type="application/pdf",
+                size_bytes=100,
+                sha256="a" * 64,
+            )
+        )
+
+
+def test_document_completion_and_failure_require_processing_row() -> None:
+    service, repository_mock, session = _service()
+    extracted = ExtractedContent("Extracted", {"schema_version": 1}, "pypdf", "1")
+    repository_mock.mark_document_ready.side_effect = [
+        _source(kind="document", status="ready"),
+        None,
+    ]
+    repository_mock.mark_document_failed.side_effect = [
+        _source(kind="document", status="failed"),
+        None,
+    ]
+
+    ready = asyncio.run(
+        service.mark_document_ready(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+            extracted=extracted,
+        )
+    )
+    assert ready.current_version.status == "ready"
+    with pytest.raises(KnowledgeSourceNotFoundError):
+        asyncio.run(
+            service.mark_document_ready(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+                extracted=extracted,
+            )
+        )
+
+    failed = asyncio.run(
+        service.mark_document_failed(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+            failure_code="invalid_document",
+            failure_message="Invalid document.",
+        )
+    )
+    assert failed.current_version.status == "failed"
+    with pytest.raises(KnowledgeSourceNotFoundError):
+        asyncio.run(
+            service.mark_document_failed(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+                failure_code="invalid_document",
+                failure_message="Invalid document.",
+            )
+        )
+
+
+def test_document_retry_enforces_kind_state_lease_and_file_access() -> None:
+    service, repository_mock, session = _service()
+    repository_mock.get_source.side_effect = [
+        _source(kind="article"),
+        _source(kind="document", status="ready"),
+        _source(kind="document", status="processing"),
+        _source(kind="document", status="failed"),
+        _source(kind="document", status="failed"),
+    ]
+
+    expected_errors = [
+        KnowledgeSourceKindError,
+        KnowledgeProcessingNotRetryableError,
+        KnowledgeProcessingInProgressError,
+    ]
+    for expected_error in expected_errors:
+        with pytest.raises(expected_error):
+            asyncio.run(
+                service.begin_document_retry(
+                    session,
+                    actor_user_id=ACTOR_ID,
+                    organization_id=ORGANIZATION_ID,
+                    source_id=SOURCE_ID,
+                    stale_after_seconds=900,
+                )
+            )
+
+    repository_mock.begin_document_retry.side_effect = [
+        _source(kind="document", status="processing"),
+        None,
+    ]
+    repository_mock.get_file_objects.return_value = [_file_object()]
+    retried, file_object = asyncio.run(
+        service.begin_document_retry(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+            stale_after_seconds=900,
+        )
+    )
+    assert retried.current_version.status == "processing"
+    assert file_object.version_id == VERSION_ID
+    with pytest.raises(KnowledgeSourceNotFoundError):
+        asyncio.run(
+            service.begin_document_retry(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+                stale_after_seconds=900,
+            )
+        )
+
+
+def test_stale_processing_can_retry_and_missing_current_file_fails_closed() -> None:
+    service, repository_mock, session = _service()
+    stale = _source(kind="document", status="processing")
+    object.__setattr__(
+        stale.current_version,
+        "processing_started_at",
+        datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
+    )
+    repository_mock.get_source.return_value = stale
+    repository_mock.begin_document_retry.return_value = stale
+    repository_mock.get_file_objects.return_value = [
+        _file_object(UUID("50000000-0000-0000-0000-000000000099"))
+    ]
+
+    with pytest.raises(KnowledgeStorageUnavailableError):
+        asyncio.run(
+            service.begin_document_retry(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+                stale_after_seconds=900,
+            )
+        )
+
+
+def test_download_requires_manager_document_and_guarded_file_lookup() -> None:
+    service, repository_mock, session = _service("owner")
+    repository_mock.get_source.side_effect = [
+        _source(kind="document"),
+        _source(kind="article"),
+    ]
+    repository_mock.get_file_objects.return_value = [_file_object()]
+
+    file_object = asyncio.run(
+        service.get_file_for_download(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+        )
+    )
+    assert file_object.original_filename == "guide.pdf"
+    with pytest.raises(KnowledgeSourceKindError):
+        asyncio.run(
+            service.get_file_for_download(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+            )
+        )
+
+    denied, denied_repository, denied_session = _service("member")
+    with pytest.raises(TenantAuthorizationError):
+        asyncio.run(
+            denied.get_file_for_download(
+                denied_session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+            )
+        )
+    denied_repository.get_file_objects.assert_not_awaited()
+
+
+def test_deletion_plan_and_final_delete_are_manager_only_and_tenant_scoped() -> None:
+    service, repository_mock, session = _service()
+    repository_mock.get_source.side_effect = [
+        _source(kind="document"),
+        _source(kind="article"),
+    ]
+    repository_mock.get_file_objects.return_value = [_file_object()]
+    repository_mock.delete_source.side_effect = [True, False]
+
+    document_plan = asyncio.run(
+        service.prepare_deletion(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+        )
+    )
+    article_plan = asyncio.run(
+        service.prepare_deletion(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+        )
+    )
+    assert document_plan.file_objects == [_file_object()]
+    assert article_plan.file_objects == []
+
+    asyncio.run(
+        service.delete_source(
+            session,
+            actor_user_id=ACTOR_ID,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+        )
+    )
+    with pytest.raises(KnowledgeSourceNotFoundError):
+        asyncio.run(
+            service.delete_source(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
             )
         )

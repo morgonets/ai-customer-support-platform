@@ -3,8 +3,8 @@
 ## Status
 
 M2 extends the M1 operational, identity, and organization contracts with organization-scoped,
-versioned knowledge articles. Document upload and original-file endpoints are added by the
-subsequent M2 ingestion phase. FastAPI remains the exclusive product-data and file-access API.
+versioned knowledge articles and documents. FastAPI remains the exclusive product-data and
+file-access API.
 
 ## Operational endpoints
 
@@ -145,19 +145,23 @@ Tenant failures use these stable codes:
 - `409 membership_already_exists` for a duplicate organization/user membership;
 - `409 last_owner_required` when a mutation would leave no owner.
 
-## Knowledge article endpoints
+## Knowledge source endpoints
 
 Knowledge paths are nested under the authorized organization. Organization and source UUIDs select
 among records visible to the caller and never grant access.
 
-| Method  | Path                                                                            | Required role           | Result                                       |
-| ------- | ------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------- |
-| `GET`   | `/api/v1/organizations/{organization_id}/knowledge-sources`                     | Any organization member | Cursor-paginated source metadata             |
-| `POST`  | `/api/v1/organizations/{organization_id}/knowledge-sources/articles`            | Owner or admin          | Creates a ready article and version          |
-| `GET`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Any organization member | Source and current-version metadata          |
-| `GET`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/content` | Any organization member | Authored and normalized content plus offsets |
-| `PATCH` | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Owner or admin          | Updates title and/or description             |
-| `PUT`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/content` | Owner or admin          | Creates a new current article version        |
+| Method   | Path                                                                            | Required role           | Result                                       |
+| -------- | ------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------- |
+| `GET`    | `/api/v1/organizations/{organization_id}/knowledge-sources`                     | Any organization member | Cursor-paginated source metadata             |
+| `POST`   | `/api/v1/organizations/{organization_id}/knowledge-sources/articles`            | Owner or admin          | Creates a ready article and version          |
+| `POST`   | `/api/v1/organizations/{organization_id}/knowledge-sources/documents`           | Owner or admin          | Stores, extracts, and records a document     |
+| `GET`    | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Any organization member | Source and current-version metadata          |
+| `GET`    | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/content` | Any organization member | Authored and normalized content plus offsets |
+| `GET`    | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/file`    | Owner or admin          | Streams the private original document        |
+| `PATCH`  | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Owner or admin          | Updates title and/or description             |
+| `PUT`    | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/content` | Owner or admin          | Creates a new current article version        |
+| `POST`   | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/retry`   | Owner or admin          | Retries failed or stale document processing  |
+| `DELETE` | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}`         | Owner or admin          | Deletes source, versions, and stored files   |
 
 The collection accepts `limit` from 1–100, an opaque `cursor`, and optional `kind` and
 `processing_status` filters. Results are ordered by source creation time and UUID descending and
@@ -167,10 +171,28 @@ Titles are trimmed and contain 1–200 characters. Descriptions are optional and
 2,000 characters. Article input contains at most 500,000 characters; normalization rejects content
 that becomes empty. Replacing article content retains the previous immutable version.
 
+Document creation is `multipart/form-data` with a required `file` and optional `title` and
+`description`. M2 accepts files no larger than 10 MiB with exact extension/media-type pairs:
+UTF-8 `.txt` (`text/plain`), UTF-8 `.md` (`text/markdown` or `text/plain`), and unencrypted,
+text-extractable `.pdf` (`application/pdf`) with at most 100 pages. The request performs bounded
+synchronous storage and extraction. Its persisted version moves from `processing` to `ready` or
+`failed`; safe `failure_code` and `failure_message` values support diagnosis and retry. A retry is
+allowed for a failed version or a processing lease older than the configured stale interval, but
+not for a ready version or an active processing lease.
+
+All members can read source metadata and normalized content. Original document bytes have a
+deliberately narrower contract: only owners and admins can download them. The download is streamed
+through FastAPI with private/no-store and no-sniff response headers; storage paths are never public
+API data. Delete removes stored objects before deleting the database source. If either dependency
+is unavailable, the operation fails closed and can be retried by a manager.
+
 Foreign and absent source identifiers both return `404 knowledge_source_not_found`. Knowledge
 errors additionally use `invalid_cursor`, `invalid_knowledge_content`,
 `normalized_content_too_large`, `knowledge_source_kind_mismatch`, and
-`knowledge_content_unavailable` as documented by the OpenAPI responses and tests.
+`knowledge_content_unavailable`. Upload and processing errors use `file_too_large`,
+`unsupported_media_type`, `invalid_document`, `storage_unavailable`, `processing_in_progress`, and
+`processing_not_retryable`. Extraction-specific failure codes are persisted on the version rather
+than exposing parser exceptions or file contents.
 
 The indistinguishable organization `404` is deliberate: foreign organization IDs do not reveal
 whether another tenant exists.

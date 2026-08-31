@@ -51,6 +51,30 @@ def _row() -> dict[str, object]:
     }
 
 
+def _document_row(status: str = "processing") -> dict[str, object]:
+    row = _row()
+    row.update(
+        {
+            "kind": "document",
+            "status": status,
+            "raw_text": None,
+            "normalized_text": "Extracted" if status == "ready" else None,
+            "locator_map": {"schema_version": 1} if status == "ready" else None,
+            "original_filename": "guide.pdf",
+            "media_type": "application/pdf",
+            "size_bytes": 100,
+            "sha256": "a" * 64,
+            "extractor_name": "pypdf" if status == "ready" else None,
+            "extractor_version": "1" if status == "ready" else None,
+            "processing_attempts": 1,
+            "processing_started_at": NOW,
+            "failure_code": "failed" if status == "failed" else None,
+            "failure_message": "Failed" if status == "failed" else None,
+        }
+    )
+    return row
+
+
 def _mapping_result(*rows: dict[str, object]) -> MagicMock:
     result = MagicMock()
     result.mappings.return_value.all.return_value = list(rows)
@@ -233,3 +257,133 @@ def test_repository_replaces_article_under_lock_and_handles_missing_source() -> 
         )
         is None
     )
+
+
+def test_repository_creates_processing_document_and_requires_visibility() -> None:
+    repository = SqlAlchemyKnowledgeRepository()
+    session = AsyncMock(spec=AsyncSession)
+    session.execute.side_effect = [MagicMock(), MagicMock(), _mapping_result(_document_row())]
+
+    created = asyncio.run(
+        repository.create_document_processing(
+            session,
+            source_id=SOURCE_ID,
+            version_id=VERSION_ID,
+            organization_id=ORGANIZATION_ID,
+            actor_user_id=ACTOR_ID,
+            title="Document",
+            description=None,
+            original_filename="guide.pdf",
+            media_type="application/pdf",
+            size_bytes=100,
+            sha256="a" * 64,
+            storage_key=f"{ORGANIZATION_ID}/{SOURCE_ID}/{VERSION_ID}/content",
+            processing_started_at=NOW,
+        )
+    )
+    assert created.kind == "document"
+
+    missing_session = AsyncMock(spec=AsyncSession)
+    missing_session.execute.side_effect = [MagicMock(), MagicMock(), _mapping_result()]
+    with pytest.raises(RuntimeError, match="document is not visible"):
+        asyncio.run(
+            repository.create_document_processing(
+                missing_session,
+                source_id=SOURCE_ID,
+                version_id=VERSION_ID,
+                organization_id=ORGANIZATION_ID,
+                actor_user_id=ACTOR_ID,
+                title="Document",
+                description=None,
+                original_filename="guide.pdf",
+                media_type="application/pdf",
+                size_bytes=100,
+                sha256="a" * 64,
+                storage_key=f"{ORGANIZATION_ID}/{SOURCE_ID}/{VERSION_ID}/content",
+                processing_started_at=NOW,
+            )
+        )
+
+
+def test_repository_completes_fails_and_retries_document_processing() -> None:
+    repository = SqlAlchemyKnowledgeRepository()
+
+    async def exercise_update(method_name: str, expected_status: str, **kwargs: object) -> None:
+        session = AsyncMock(spec=AsyncSession)
+        updated = MagicMock()
+        updated.scalar_one_or_none.return_value = VERSION_ID
+        session.execute.side_effect = [updated, _mapping_result(_document_row(expected_status))]
+        result = await getattr(repository, method_name)(
+            session,
+            organization_id=ORGANIZATION_ID,
+            source_id=SOURCE_ID,
+            **kwargs,
+        )
+        assert result is not None
+        assert result.current_version.status == expected_status
+
+        missing_session = AsyncMock(spec=AsyncSession)
+        missing = MagicMock()
+        missing.scalar_one_or_none.return_value = None
+        missing_session.execute.return_value = missing
+        assert (
+            await getattr(repository, method_name)(
+                missing_session,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+                **kwargs,
+            )
+            is None
+        )
+
+    async def exercise() -> None:
+        await exercise_update(
+            "mark_document_ready",
+            "ready",
+            normalized_text="Extracted",
+            locator_map={"schema_version": 1},
+            extractor_name="pypdf",
+            extractor_version="1",
+            processed_at=NOW,
+        )
+        await exercise_update(
+            "mark_document_failed",
+            "failed",
+            failure_code="invalid_document",
+            failure_message="Invalid",
+            processed_at=NOW,
+        )
+        await exercise_update(
+            "begin_document_retry",
+            "processing",
+            processing_started_at=NOW,
+        )
+
+    asyncio.run(exercise())
+
+
+def test_repository_resolves_guarded_files_and_deletes_source() -> None:
+    repository = SqlAlchemyKnowledgeRepository()
+    file_result = _mapping_result(
+        {
+            "version_id": VERSION_ID,
+            "storage_key": f"{ORGANIZATION_ID}/{SOURCE_ID}/{VERSION_ID}/content",
+            "original_filename": "guide.pdf",
+            "media_type": "application/pdf",
+            "size_bytes": 100,
+        }
+    )
+    deleted = MagicMock()
+    deleted.scalar_one_or_none.return_value = SOURCE_ID
+    missing = MagicMock()
+    missing.scalar_one_or_none.return_value = None
+    session = AsyncMock(spec=AsyncSession)
+    session.execute.side_effect = [file_result, deleted, missing]
+
+    async def exercise() -> None:
+        files = await repository.get_file_objects(session, ORGANIZATION_ID, SOURCE_ID)
+        assert files[0].original_filename == "guide.pdf"
+        assert await repository.delete_source(session, ORGANIZATION_ID, SOURCE_ID)
+        assert not await repository.delete_source(session, ORGANIZATION_ID, SOURCE_ID)
+
+    asyncio.run(exercise())

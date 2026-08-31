@@ -54,3 +54,35 @@ class KnowledgeSource:
 class KnowledgeSourcePage:
     items: list[KnowledgeSource]
     next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeFileObject:
+    version_id: UUID
+    storage_key: str
+    original_filename: str
+    media_type: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedUpload:
+    temporary_path: str
+    original_filename: str
+    media_type: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractedContent:
+    normalized_text: str
+    locator_map: dict[str, object]
+    extractor_name: str
+    extractor_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeDeletionPlan:
+    source: KnowledgeSource
+    file_objects: list[KnowledgeFileObject]

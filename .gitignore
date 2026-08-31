@@ -51,6 +51,7 @@ Thumbs.db
 *.swo
 
 # Logs and local runtime files
+.data/
 *.log
 *.pid
 *.seed

@@ -1,11 +1,20 @@
+from collections.abc import Iterator
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, BinaryIO
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import CurrentActor, CurrentSession
+from app.api.dependencies import CurrentActor, CurrentDatabase, CurrentSession
+from app.core.config import get_settings
+from app.knowledge.errors import KnowledgeInvalidDocumentError
+from app.knowledge.extraction import DocumentExtractor, default_document_title, safe_upload_filename
+from app.knowledge.ingestion import KnowledgeIngestionCoordinator
 from app.knowledge.models import (
     KnowledgeProcessingStatus,
     KnowledgeSource,
@@ -15,6 +24,7 @@ from app.knowledge.models import (
 from app.knowledge.normalization import MAX_ARTICLE_CHARACTERS
 from app.knowledge.repository import SqlAlchemyKnowledgeRepository
 from app.knowledge.service import KnowledgeService
+from app.knowledge.storage import ObjectStorage
 from app.tenants.authorization import TenantAuthorizer
 from app.tenants.repository import SqlAlchemyTenantRepository
 
@@ -42,6 +52,44 @@ def get_knowledge_service() -> KnowledgeService:
 
 
 KnowledgeServiceDependency = Annotated[KnowledgeService, Depends(get_knowledge_service)]
+
+
+def get_knowledge_storage(request: Request) -> ObjectStorage:
+    storage: object = request.app.state.knowledge_storage
+    if not isinstance(storage, ObjectStorage):
+        raise RuntimeError("knowledge storage is not configured")
+    return storage
+
+
+def get_document_extractor(request: Request) -> DocumentExtractor:
+    extractor: object = request.app.state.document_extractor
+    if not isinstance(extractor, DocumentExtractor):
+        raise RuntimeError("document extractor is not configured")
+    return extractor
+
+
+KnowledgeStorageDependency = Annotated[ObjectStorage, Depends(get_knowledge_storage)]
+DocumentExtractorDependency = Annotated[DocumentExtractor, Depends(get_document_extractor)]
+
+
+def get_ingestion_coordinator(
+    service: KnowledgeServiceDependency,
+    storage: KnowledgeStorageDependency,
+    extractor: DocumentExtractorDependency,
+) -> KnowledgeIngestionCoordinator:
+    settings = get_settings()
+    return KnowledgeIngestionCoordinator(
+        service,
+        storage,
+        extractor,
+        maximum_upload_bytes=settings.knowledge_max_upload_bytes,
+        processing_stale_seconds=settings.knowledge_processing_stale_seconds,
+    )
+
+
+KnowledgeIngestionDependency = Annotated[
+    KnowledgeIngestionCoordinator, Depends(get_ingestion_coordinator)
+]
 
 
 class KnowledgeVersionResponse(BaseModel):
@@ -200,6 +248,41 @@ async def create_article(
     return KnowledgeSourceResponse.from_domain(source)
 
 
+@router.post(
+    "/documents",
+    response_model=KnowledgeSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and process a knowledge document",
+)
+async def create_document(
+    organization_id: UUID,
+    actor: CurrentActor,
+    database: CurrentDatabase,
+    coordinator: KnowledgeIngestionDependency,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str | None, Form(max_length=200)] = None,
+    description: Annotated[str | None, Form(max_length=2000)] = None,
+) -> KnowledgeSourceResponse:
+    filename = safe_upload_filename(file.filename)
+    normalized_title = default_document_title(filename) if title is None else title.strip()
+    normalized_description = None if description is None else description.strip()
+    if not normalized_title or (description is not None and not normalized_description):
+        raise KnowledgeInvalidDocumentError
+
+    def session_factory() -> AbstractAsyncContextManager[AsyncSession]:
+        return database.session_for(actor)
+
+    source = await coordinator.create_document(
+        session_factory,
+        actor_user_id=actor.user_id,
+        organization_id=organization_id,
+        title=normalized_title,
+        description=normalized_description,
+        upload=file,
+    )
+    return KnowledgeSourceResponse.from_domain(source)
+
+
 @router.get(
     "/{source_id}", response_model=KnowledgeSourceResponse, summary="Get a knowledge source"
 )
@@ -297,3 +380,86 @@ async def replace_article_content(
         raw_text=body.text,
     )
     return KnowledgeSourceResponse.from_domain(source)
+
+
+@router.post(
+    "/{source_id}/retry",
+    response_model=KnowledgeSourceResponse,
+    summary="Retry document processing",
+)
+async def retry_document_processing(
+    organization_id: UUID,
+    source_id: UUID,
+    actor: CurrentActor,
+    database: CurrentDatabase,
+    coordinator: KnowledgeIngestionDependency,
+) -> KnowledgeSourceResponse:
+    def session_factory() -> AbstractAsyncContextManager[AsyncSession]:
+        return database.session_for(actor)
+
+    source = await coordinator.retry_document(
+        session_factory,
+        actor_user_id=actor.user_id,
+        organization_id=organization_id,
+        source_id=source_id,
+    )
+    return KnowledgeSourceResponse.from_domain(source)
+
+
+def _file_chunks(stream: BinaryIO) -> Iterator[bytes]:
+    with stream:
+        while chunk := stream.read(64 * 1024):
+            yield chunk
+
+
+@router.get("/{source_id}/file", summary="Download the original knowledge document")
+async def download_original_document(
+    organization_id: UUID,
+    source_id: UUID,
+    actor: CurrentActor,
+    session: CurrentSession,
+    service: KnowledgeServiceDependency,
+    storage: KnowledgeStorageDependency,
+) -> StreamingResponse:
+    file_object = await service.get_file_for_download(
+        session,
+        actor_user_id=actor.user_id,
+        organization_id=organization_id,
+        source_id=source_id,
+    )
+    stream = await storage.open(file_object.storage_key)
+    encoded_filename = quote(file_object.original_filename, safe="")
+    return StreamingResponse(
+        _file_chunks(stream),
+        media_type=file_object.media_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Content-Length": str(file_object.size_bytes),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete(
+    "/{source_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a knowledge source",
+)
+async def delete_knowledge_source(
+    organization_id: UUID,
+    source_id: UUID,
+    actor: CurrentActor,
+    database: CurrentDatabase,
+    coordinator: KnowledgeIngestionDependency,
+) -> Response:
+    def session_factory() -> AbstractAsyncContextManager[AsyncSession]:
+        return database.session_for(actor)
+
+    await coordinator.delete_source(
+        session_factory,
+        actor_user_id=actor.user_id,
+        organization_id=organization_id,
+        source_id=source_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

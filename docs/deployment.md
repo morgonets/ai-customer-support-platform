@@ -2,9 +2,10 @@
 
 ## Status
 
-M1 uses Supabase CLI for reproducible local Auth and PostgreSQL development and retains
-production-style application container builds. No remote project, production hosting platform,
-region, domain, or service-level objective has been selected.
+M2 uses Supabase CLI for reproducible local Auth and PostgreSQL development, local persistent
+knowledge-file storage behind an application interface, and production-style application
+container builds. No remote project, production hosting platform, region, domain, object-storage
+provider, or service-level objective has been selected.
 
 ## Local modes
 
@@ -57,6 +58,10 @@ recreates local application data from committed migrations and seed files and is
 - `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL`, `SUPABASE_JWT_AUDIENCE`: backend token-verification contract
 - `SUPABASE_JWT_LEEWAY_SECONDS`: optional clock-skew allowance from `0` to `300` seconds; defaults to `0`
 - `DATABASE_URL`: least-privilege FastAPI runtime database URL
+- `KNOWLEDGE_LOCAL_STORAGE_PATH`: private local document root; defaults to `apps/api/.data/knowledge` through `pnpm dev:api`
+- `KNOWLEDGE_MAX_UPLOAD_BYTES`: upload ceiling, capped by the application at 10 MiB
+- `KNOWLEDGE_MAX_PDF_PAGES`: PDF page ceiling, capped by the application at 100
+- `KNOWLEDGE_PROCESSING_STALE_SECONDS`: processing lease after which a manager may retry
 - `API_DATABASE_PASSWORD`: local runtime-role provisioning input
 - `API_DATABASE_URL_DOCKER`, `SUPABASE_JWKS_URL_DOCKER`: container-to-host local endpoints
 
@@ -67,8 +72,12 @@ secret-management/release process; do not place them in migrations.
 
 Production configuration must come from the hosting platform's secret/configuration service. Do not bake secrets into images, source files, build arguments, `NEXT_PUBLIC_*`, or CI logs.
 Production startup rejects local/placeholder database and Auth endpoints and requires HTTPS for the
-Supabase issuer and JWKS URL. Hosting-specific URLs, credentials, clock-skew policy, and secret
-delivery remain deployment configuration; this repository does not invent production values.
+Supabase issuer and JWKS URL. It also rejects local file storage unless
+`KNOWLEDGE_ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true` is an explicit deployment decision and
+`KNOWLEDGE_LOCAL_STORAGE_PATH` is absolute. This is a guardrail, not a production storage
+recommendation. Hosting-specific URLs, credentials, storage durability, clock-skew policy, and
+secret delivery remain deployment configuration; this repository does not invent production
+values.
 
 `APP_URL` must be an origin without a path, query, or fragment. The same production origin and
 `/auth/confirm` callback must be allowlisted in the Supabase Auth project configuration. Cookie
@@ -81,12 +90,16 @@ email templates remain environment-specific operational choices; local developme
 - The web runtime needs `APP_URL`; the three `NEXT_PUBLIC_*` values are browser-visible build inputs.
 - Compose sets `API_INTERNAL_URL=http://api:8000`; production should use its private service origin.
 - The API image runs a non-root user and Uvicorn on port `8000`.
+- Compose mounts the private `knowledge_data` volume at `/var/lib/ai-support/knowledge`; original
+  files are never served by the web server or mounted into its container.
 - `/health` is a process liveness check; `/ready` verifies PostgreSQL connectivity for traffic readiness.
 - Images install dependencies from committed lockfiles.
 - The Supabase CLI stack is for local development only and is not a production database recommendation.
 - The API writes structured JSON application logs to stderr. HTTP entries contain request ID, method,
   path, status, and duration; they deliberately omit query strings, bodies, credentials, and tokens.
-- Containers keep writable state outside the image filesystem.
+- Containers keep writable state outside the image filesystem. Back up or remove the
+  `knowledge_data` volume according to the same lifecycle as its local database; resetting only
+  PostgreSQL does not clean the file volume.
 
 For production, pin base images by digest through an explicit dependency-update process. M0 uses readable version tags so the initial stack remains maintainable while the hosting target is undecided.
 
@@ -109,7 +122,8 @@ A first production topology should stay small:
 - one managed Next.js/web deployment
 - one containerized FastAPI deployment, with horizontal replicas only when needed
 - managed Supabase PostgreSQL with pgvector; project ownership, region, and plan remain open
-- managed object storage when document ingestion is introduced
+- managed private object storage before multi-host or public production deployment; the M2
+  `ObjectStorage` interface is the replacement boundary
 - a worker process from the API codebase only when durable background work exists
 - managed secrets, TLS, centralized logs, metrics, traces, and alerting
 
