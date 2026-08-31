@@ -16,7 +16,7 @@ This roadmap sequences outcomes rather than promising dates. A milestone is comp
 
 ## M1 — Tenant-aware SaaS core
 
-**Implementation status:** complete on the M1 feature branch and awaiting review.
+**Implementation status:** complete and merged into `main`.
 
 **Goal:** introduce the minimum secure application and persistence model.
 
@@ -33,20 +33,24 @@ This roadmap sequences outcomes rather than promising dates. A milestone is comp
 
 **Goal:** let a workspace safely manage source material.
 
-- Document upload and storage abstraction
-- File validation, limits, status, and deletion lifecycle
-- Text extraction and normalized document representation
-- Background job mechanism chosen from measured requirements
-- Chunking, embedding abstraction, and pgvector persistence
-- Reprocessing, idempotency, failure visibility, and retention rules
+- Unified, versioned article and uploaded-document sources
+- Local persistent storage behind an object-storage abstraction
+- Strict file validation, limits, processing status, retry, and deletion lifecycle
+- Text extraction and a normalized, location-aware content representation
+- Application authorization plus PostgreSQL FORCE RLS tenant isolation
+- A practical organization knowledge workspace
 
-**Exit criteria:** supported documents move through an observable, retryable ingestion pipeline and can be deleted completely within their tenant boundary.
+**Exit criteria:** supported articles and documents move through an observable, retryable ingestion
+pipeline, remain isolated to their organization, and can be deleted completely within their tenant
+boundary. M2 does not require a queue, worker, embedding provider, or vector index.
 
 ## M3 — Grounded answer engine
 
 **Goal:** answer questions from tenant knowledge with verifiable evidence.
 
 - Versioned retrieval and ranking pipeline
+- Source chunking, embedding abstraction, and pgvector persistence
+- Re-indexing generations and retrieval-time tenant isolation
 - LLM and embedding provider interfaces
 - Prompt construction with untrusted-content defenses
 - Source citations mapped to stable document locations
