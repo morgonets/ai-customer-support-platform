@@ -20,6 +20,7 @@ from app.api.dependencies import (
     require_authenticated_actor,
 )
 from app.api.knowledge_errors import knowledge_error_handler
+from app.api.rag_dependencies import get_rag_service
 from app.api.routes.knowledge import (
     get_document_extractor,
     get_ingestion_coordinator,
@@ -55,6 +56,7 @@ from app.knowledge.models import (
 from app.knowledge.service import KnowledgeService
 from app.knowledge.storage import LocalObjectStorage, ObjectStorage
 from app.main import app
+from app.rag.service import RagService
 
 NOW = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
 ACTOR_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -143,6 +145,7 @@ def test_knowledge_article_http_contracts() -> None:
     service_mock.update_metadata.return_value = _source()
     service_mock.replace_article_content.return_value = _source()
     session = MagicMock(spec=AsyncSession)
+    rag_service_mock = MagicMock(spec=RagService)
 
     async def actor_override() -> AuthenticatedActor:
         return _actor()
@@ -156,6 +159,7 @@ def test_knowledge_article_http_contracts() -> None:
     app.dependency_overrides[require_authenticated_actor] = actor_override
     app.dependency_overrides[get_authenticated_session] = session_override
     app.dependency_overrides[get_knowledge_service] = service_override
+    app.dependency_overrides[get_rag_service] = lambda: cast(RagService, rag_service_mock)
     client = TestClient(app)
     base = f"/api/v1/organizations/{ORGANIZATION_ID}/knowledge-sources"
     try:
@@ -196,6 +200,7 @@ def test_knowledge_article_http_contracts() -> None:
         description=None,
         description_is_set=True,
     )
+    assert rag_service_mock.enqueue_ready_source.await_count == 2
 
 
 def test_knowledge_metadata_requires_a_real_change() -> None:
@@ -246,12 +251,22 @@ def test_knowledge_runtime_dependencies_are_configured(tmp_path: Path) -> None:
     request = Request({"type": "http", "app": app})
     assert isinstance(get_knowledge_storage(request), LocalObjectStorage)
     assert isinstance(get_document_extractor(request), DocumentExtractor)
+    rag_service_mock = MagicMock(spec=RagService)
     coordinator = get_ingestion_coordinator(
         knowledge_service,
         LocalObjectStorage(tmp_path),
         DocumentExtractor(maximum_pdf_pages=1),
+        cast(RagService, rag_service_mock),
     )
     assert isinstance(coordinator, KnowledgeIngestionCoordinator)
+    assert coordinator._ready_callback is not None
+
+    async def invoke_ready_callback() -> None:
+        assert coordinator._ready_callback is not None
+        await coordinator._ready_callback(cast(AsyncSession, MagicMock()), ACTOR_ID, _source())
+
+    asyncio.run(invoke_ready_callback())
+    rag_service_mock.enqueue_ready_source.assert_awaited_once()
 
     invalid_app = SimpleNamespace(state=SimpleNamespace(knowledge_storage=object()))
     invalid_request = Request({"type": "http", "app": invalid_app})

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentActor, CurrentDatabase, CurrentSession
+from app.api.rag_dependencies import RagServiceDependency
 from app.core.config import get_settings
 from app.knowledge.errors import KnowledgeInvalidDocumentError
 from app.knowledge.extraction import DocumentExtractor, default_document_title, safe_upload_filename
@@ -76,14 +77,22 @@ def get_ingestion_coordinator(
     service: KnowledgeServiceDependency,
     storage: KnowledgeStorageDependency,
     extractor: DocumentExtractorDependency,
+    rag_service: RagServiceDependency,
 ) -> KnowledgeIngestionCoordinator:
     settings = get_settings()
+
+    async def enqueue_ready(
+        session: AsyncSession, actor_user_id: UUID, source: KnowledgeSource
+    ) -> None:
+        await rag_service.enqueue_ready_source(session, actor_user_id=actor_user_id, source=source)
+
     return KnowledgeIngestionCoordinator(
         service,
         storage,
         extractor,
         maximum_upload_bytes=settings.knowledge_max_upload_bytes,
         processing_stale_seconds=settings.knowledge_processing_stale_seconds,
+        ready_callback=enqueue_ready,
     )
 
 
@@ -236,6 +245,7 @@ async def create_article(
     actor: CurrentActor,
     session: CurrentSession,
     service: KnowledgeServiceDependency,
+    rag_service: RagServiceDependency,
 ) -> KnowledgeSourceResponse:
     source = await service.create_article(
         session,
@@ -245,6 +255,7 @@ async def create_article(
         description=body.description,
         raw_text=body.text,
     )
+    await rag_service.enqueue_ready_source(session, actor_user_id=actor.user_id, source=source)
     return KnowledgeSourceResponse.from_domain(source)
 
 
@@ -371,6 +382,7 @@ async def replace_article_content(
     actor: CurrentActor,
     session: CurrentSession,
     service: KnowledgeServiceDependency,
+    rag_service: RagServiceDependency,
 ) -> KnowledgeSourceResponse:
     source = await service.replace_article_content(
         session,
@@ -379,6 +391,7 @@ async def replace_article_content(
         source_id=source_id,
         raw_text=body.text,
     )
+    await rag_service.enqueue_ready_source(session, actor_user_id=actor.user_id, source=source)
     return KnowledgeSourceResponse.from_domain(source)
 
 
