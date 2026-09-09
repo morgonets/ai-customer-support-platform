@@ -2,9 +2,9 @@
 
 ## Status
 
-M2 extends the M1 operational, identity, and organization contracts with organization-scoped,
-versioned knowledge articles and documents. FastAPI remains the exclusive product-data and
-file-access API.
+M3 extends the tenant and knowledge contracts with durable index administration and synchronous
+grounded-answer generation. FastAPI remains the exclusive product-data, retrieval, and file-access
+API.
 
 ## Operational endpoints
 
@@ -197,6 +197,48 @@ than exposing parser exceptions or file contents.
 The indistinguishable organization `404` is deliberate: foreign organization IDs do not reveal
 whether another tenant exists.
 
+## RAG endpoints
+
+All RAG paths are organization-scoped, bearer-authenticated, and independently protected by
+FastAPI authorization and FORCE RLS.
+
+| Method | Path                                                                                                            | Required role  | Result                                                   |
+| ------ | --------------------------------------------------------------------------------------------------------------- | -------------- | -------------------------------------------------------- |
+| `POST` | `/api/v1/organizations/{organization_id}/answers`                                                               | Any member     | Returns a grounded answer or explicit no-answer result   |
+| `GET`  | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/index-generations`                       | Any member     | Lists safe generation status and failure metadata        |
+| `POST` | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/index-generations`                       | Owner or admin | Queues a new generation for the current active profile   |
+| `POST` | `/api/v1/organizations/{organization_id}/knowledge-sources/{source_id}/index-generations/{generation_id}/retry` | Owner or admin | Requeues a failed generation                             |
+| `POST` | `/api/v1/organizations/{organization_id}/rag-profile-migrations`                                                | Owner or admin | Stages a registered profile across current ready sources |
+
+The answer request is `{ "question": "..." }` with a trimmed 1–4,000 character question. The
+response contains `answer`, `insufficient_context`, and `citations`. Each citation includes source
+and immutable version IDs, version number, source title/kind, a bounded excerpt, answer character
+bounds, and the chunk locator derived from the M2 `locator_map`. Questions, answers, and citation
+records are not persisted.
+
+Retrieval selects only active ready generations for the authorized organization. The public
+reference implementation performs exact cosine and PostgreSQL lexical candidate retrieval and
+combines ranks with equal-weight reciprocal rank fusion. It does not expose vectors, prompts,
+provider payloads, private thresholds, query rewriting, or reranking. When evidence is absent or
+the provider declines to answer, the response is:
+
+```json
+{
+  "answer": "I don't have enough information in the knowledge base to answer.",
+  "insufficient_context": true,
+  "citations": []
+}
+```
+
+Knowledge is untrusted prompt data. The OpenAI adapter sends a JSON evidence envelope, disables
+storage and tools, requests strict structured output, and accepts only citations to supplied
+evidence IDs. Provider failures return `503 rag_provider_unavailable`; missing tenant RAG setup
+returns `409 rag_not_configured`; unknown profiles and generations return tenant-safe `404` errors.
+
+Creating a ready article, finishing document extraction, or replacing article content queues the
+needed active and staging generations in the same database transaction. Indexing is asynchronous;
+an existing active generation remains eligible until its complete replacement activates.
+
 ## Pagination, filtering, and idempotency (planned)
 
 - Prefer cursor pagination for mutable, potentially large collections.
@@ -207,7 +249,10 @@ whether another tenant exists.
 
 ## Streaming (planned)
 
-The web answer experience is expected to stream status and content. Server-Sent Events are the initial candidate because the primary flow is server-to-client, but the choice should be confirmed in M3/M4. A stream must define event types, terminal/error events, reconnection behavior, cancellation, persistence timing, and citation finalization.
+The M4 web answer experience is expected to stream status and content. Server-Sent Events remain a
+candidate. A stream must define event types, terminal/error events, reconnection behavior,
+cancellation, persistence timing, and citation finalization; M3 intentionally exposes only the
+synchronous product-data contract.
 
 ## Documentation and compatibility
 

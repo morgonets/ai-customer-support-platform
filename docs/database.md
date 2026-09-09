@@ -145,13 +145,13 @@ profiles; existing rows are never rewritten.
 Every other M3 table is tenant-owned and has a required `organization_id` plus composite source and
 version lineage:
 
-| Table | Purpose and retention |
-| ----- | --------------------- |
-| `organization_rag_settings` | Active and optional staging embedding profiles for an organization |
-| `knowledge_chunk_sets` | Immutable chunker configuration, source hash, and chunk count for one immutable M2 version |
-| `knowledge_chunks` | Exact normalized-text slices, character bounds, hashes, locators, and generated `simple` `tsvector` values |
-| `knowledge_index_generations` | Durable queue, lease, validation, failure, profile, and active-generation state |
-| `knowledge_chunk_embeddings` | Generation-specific variable-dimension pgvector values with explicit profile and lineage constraints |
+| Table                         | Purpose and retention                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `organization_rag_settings`   | Active and optional staging embedding profiles for an organization                                         |
+| `knowledge_chunk_sets`        | Immutable chunker configuration, source hash, and chunk count for one immutable M2 version                 |
+| `knowledge_chunks`            | Exact normalized-text slices, character bounds, hashes, locators, and generated `simple` `tsvector` values |
+| `knowledge_index_generations` | Durable queue, lease, validation, failure, profile, and active-generation state                            |
+| `knowledge_chunk_embeddings`  | Generation-specific variable-dimension pgvector values with explicit profile and lineage constraints       |
 
 Embeddings use unconstrained `vector` storage with a checked `embedding_dimensions` value. This
 allows future profiles with different dimensions without rewriting historical generations. A

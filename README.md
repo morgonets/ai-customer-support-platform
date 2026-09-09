@@ -4,9 +4,9 @@
 
 A production-oriented, multi-tenant customer-support SaaS in development. The platform is intended to let businesses connect a knowledge base and provide grounded AI answers with citations through web chat and Telegram, while retaining conversation history, analytics, and a path to human support.
 
-> **Project status:** Milestone M2 knowledge-base lifecycle is implemented on this feature branch
-> and awaiting review. Retrieval, RAG answering, customer chat, Telegram, analytics, billing, and
-> human handoff remain deferred to later milestones.
+> **Project status:** Milestone M3 implements the public grounded-answer engine on this feature
+> branch. Customer chat, Telegram, conversation persistence, analytics, billing, and human handoff
+> remain deferred to later milestones.
 
 ## Why this project exists
 
@@ -19,10 +19,11 @@ This public portfolio project demonstrates how to design and deliver an AI-enabl
 - Versioned knowledge articles and private document upload, extraction, retry, and deletion
 - Member-readable normalized content with owner/admin-only original-file downloads
 - Persistent local file storage behind a replaceable `ObjectStorage` interface
+- Durable versioned indexing, exact hybrid retrieval, grounded answers, and stable source citations
+- Deterministic local/CI AI adapters plus opt-in OpenAI embedding and generation adapters
 
 ## Roadmap capabilities
 
-- Retrieval-augmented answers with source citations
 - Embeddable web chat and Telegram support
 - Durable conversation history and feedback
 - Human handoff and support workflows
