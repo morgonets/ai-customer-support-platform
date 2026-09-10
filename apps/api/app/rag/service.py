@@ -138,7 +138,18 @@ class RagService:
         source = await self._required_source(session, organization_id, source_id)
         profile = await self._repository.get_active_profile(session, organization_id)
         if profile is None:
-            raise RagNotConfiguredError
+            generations = await self._repository.ensure_settings_and_enqueue(
+                session,
+                organization_id=organization_id,
+                source_id=source.id,
+                version_id=source.current_version.id,
+                actor_user_id=actor_user_id,
+                profile_key=self._default_profile_key,
+                request_id=request_id,
+            )
+            if not generations:
+                raise RagNotConfiguredError
+            return generations[0]
         return await self._repository.enqueue_reindex(
             session,
             organization_id=organization_id,
@@ -264,6 +275,10 @@ class RagService:
             )
             self._record_answer(started, answer)
             return answer
+        if not generated.parts or any(
+            not part.text.strip() or not part.evidence_ids for part in generated.parts
+        ):
+            raise RagProviderUnavailableError
         evidence_by_id = {item.evidence_id: item for item in evidence}
         text_parts: list[str] = []
         citations: list[Citation] = []

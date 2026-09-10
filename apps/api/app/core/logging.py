@@ -2,7 +2,23 @@ import json
 import logging
 from datetime import UTC, datetime
 
-CONTEXT_FIELDS = ("duration_ms", "method", "path", "request_id", "status_code")
+CONTEXT_FIELDS = (
+    "chunk_count",
+    "citation_count",
+    "duration_ms",
+    "elapsed_ms",
+    "error_type",
+    "generation_id",
+    "insufficient_context",
+    "lexical_candidates",
+    "method",
+    "path",
+    "provider",
+    "request_id",
+    "selected",
+    "status_code",
+    "vector_candidates",
+)
 
 
 class JsonFormatter(logging.Formatter):

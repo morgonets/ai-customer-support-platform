@@ -64,6 +64,7 @@ def test_deterministic_adapters_are_stable_and_grounded() -> None:
     )[0]
     assert first == second
     assert sum(value * value for value in first) == pytest.approx(1)
+    assert asyncio.run(embeddings.embed_query("a b", model="hash-v1", dimensions=1)) == [1.0]
     assert embeddings.provider_name == "deterministic"
     with pytest.raises(ProviderError, match="model"):
         asyncio.run(embeddings.embed_query("question", model="unknown", dimensions=8))

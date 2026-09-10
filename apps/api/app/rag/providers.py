@@ -84,6 +84,10 @@ def _deterministic_embedding(text: str, dimensions: int) -> list[float]:
         index = int.from_bytes(digest[:8], "big") % dimensions
         vector[index] += 1.0 if digest[8] & 1 else -1.0
     norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0:
+        fallback = hashlib.sha256(text.encode("utf-8")).digest()
+        vector[int.from_bytes(fallback[:8], "big") % dimensions] = 1.0
+        norm = 1.0
     return [value / norm for value in vector]
 
 

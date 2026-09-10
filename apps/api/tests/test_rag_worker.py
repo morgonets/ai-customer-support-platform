@@ -131,7 +131,9 @@ def test_worker_rejects_wrong_embedding_count_and_stops_retrying_at_limit() -> N
     assert repository.fail.await_args.kwargs["retry_at"] is None
 
 
-def test_worker_marks_missing_provider_and_persistence_failures() -> None:
+def test_worker_marks_missing_provider_and_persistence_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     missing_database = FakeDatabase()
     missing_repository = MagicMock(spec=WorkerRagRepository)
     missing_repository.claim.return_value = _generation(provider="missing")
@@ -142,11 +144,18 @@ def test_worker_marks_missing_provider_and_persistence_failures() -> None:
     failed_database = FakeDatabase()
     failed_repository = MagicMock(spec=WorkerRagRepository)
     failed_repository.claim.return_value = _generation()
-    failed_repository.replace_artifacts.side_effect = RuntimeError("database failed")
+    failed_repository.replace_artifacts.side_effect = RuntimeError("private customer content")
     provider = MagicMock(spec=EmbeddingProvider)
     provider.embed_documents.return_value = [[1.0, 0.0]]
     assert asyncio.run(_worker(failed_database, failed_repository, provider).process_one())
     assert failed_repository.fail.await_args.kwargs["code"] == "persistence_failed"
+    assert "private customer content" not in caplog.text
+
+    stale_repository = MagicMock(spec=WorkerRagRepository)
+    stale_repository.claim.return_value = _generation(provider="missing")
+    stale_repository.fail.side_effect = RuntimeError("stale lease private detail")
+    assert asyncio.run(_worker(FakeDatabase(), stale_repository, None).process_one())
+    assert "stale lease private detail" not in caplog.text
 
 
 def test_worker_database_sets_restricted_role_and_optional_lease(
@@ -194,11 +203,15 @@ def test_run_worker_once_and_cli_entrypoint(monkeypatch: pytest.MonkeyPatch) -> 
         rag_worker_maximum_attempts=3,
         rag_worker_retry_delay_seconds=5,
         rag_worker_poll_seconds=1,
+        log_level="INFO",
     )
     monkeypatch.setattr("app.rag.worker.get_settings", MagicMock(return_value=settings))
     monkeypatch.setattr("app.rag.worker.WorkerDatabase", MagicMock(return_value=database))
     monkeypatch.setattr("app.rag.worker.IndexingWorker", MagicMock(return_value=worker))
+    configure_logging = MagicMock()
+    monkeypatch.setattr("app.rag.worker.configure_logging", configure_logging)
     asyncio.run(run_worker(once=True))
+    configure_logging.assert_called_with("INFO")
     database.dispose.assert_awaited_once()
 
     settings.openai_api_key = SecretStr("test-key")

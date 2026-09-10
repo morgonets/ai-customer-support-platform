@@ -380,7 +380,7 @@ begin
   select candidate.id into claimed_id
   from app.knowledge_index_generations as candidate
   where (
-      candidate.status = 'queued'
+      (candidate.status = 'queued' and candidate.available_at <= now())
       or (candidate.status = 'processing' and candidate.lease_expires_at <= now())
     )
     and exists (
@@ -520,13 +520,29 @@ create function app_private.complete_rag_generation(
 returns boolean language plpgsql security definer set search_path = '' as $$
 declare
   target app.knowledge_index_generations%rowtype;
+  target_organization_id uuid;
   stored_chunks integer;
   stored_embeddings integer;
   active_profile uuid;
 begin
+  select generation.organization_id into target_organization_id
+  from app.knowledge_index_generations as generation
+  where generation.id = target_generation_id;
+
+  if target_organization_id is null then
+    raise exception using errcode = '55000', message = 'RAG generation lease is not active';
+  end if;
+
+  -- Every completion for an organization takes the same lock before touching a generation row.
+  -- This serializes source/profile activation and avoids deadlocks between parallel workers.
+  perform 1
+  from app.organization_rag_settings
+  where organization_id = target_organization_id
+  for update;
+
   select * into target
   from app.knowledge_index_generations
-  where id = target_generation_id
+  where id = target_generation_id and organization_id = target_organization_id
   for update;
 
   if target.id is null
@@ -675,7 +691,7 @@ revoke all on app.knowledge_chunk_embeddings from public, anon, authenticated, s
 
 grant select on app.rag_embedding_profiles to app_api, app_rag_worker;
 grant select, insert on app.organization_rag_settings to app_api;
-grant update (active_profile_id, staging_profile_id, updated_by_user_id)
+grant update (staging_profile_id, updated_by_user_id)
   on app.organization_rag_settings to app_api;
 grant select on app.knowledge_chunk_sets, app.knowledge_chunks,
   app.knowledge_index_generations, app.knowledge_chunk_embeddings to app_api;

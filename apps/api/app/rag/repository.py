@@ -42,17 +42,12 @@ class RagRepository:
         await session.execute(
             text(
                 """
-                insert into app.organization_rag_settings (
-                  organization_id, active_profile_id, updated_by_user_id
-                ) values (:organization_id, :profile_id, :actor_user_id)
-                on conflict (organization_id) do nothing
+                select id from app.knowledge_sources
+                where organization_id = :organization_id and id = :source_id
+                for update
                 """
             ),
-            {
-                "organization_id": organization_id,
-                "profile_id": profile.id,
-                "actor_user_id": actor_user_id,
-            },
+            {"organization_id": organization_id, "source_id": source_id},
         )
         profiles_result = await session.execute(
             text(
@@ -60,11 +55,40 @@ class RagRepository:
                 select active_profile_id, staging_profile_id
                 from app.organization_rag_settings
                 where organization_id = :organization_id
+                for update
                 """
             ),
             {"organization_id": organization_id},
         )
-        settings = profiles_result.mappings().one()
+        settings = profiles_result.mappings().one_or_none()
+        if settings is None:
+            await session.execute(
+                text(
+                    """
+                    insert into app.organization_rag_settings (
+                      organization_id, active_profile_id, updated_by_user_id
+                    ) values (:organization_id, :profile_id, :actor_user_id)
+                    on conflict (organization_id) do nothing
+                    """
+                ),
+                {
+                    "organization_id": organization_id,
+                    "profile_id": profile.id,
+                    "actor_user_id": actor_user_id,
+                },
+            )
+            profiles_result = await session.execute(
+                text(
+                    """
+                    select active_profile_id, staging_profile_id
+                    from app.organization_rag_settings
+                    where organization_id = :organization_id
+                    for update
+                    """
+                ),
+                {"organization_id": organization_id},
+            )
+            settings = profiles_result.mappings().one()
         profile_ids = {cast(UUID, settings["active_profile_id"])}
         staging = cast(UUID | None, settings["staging_profile_id"])
         if staging is not None:
@@ -290,6 +314,17 @@ class RagRepository:
         profile = await self.get_profile(session, profile_key)
         if profile is None:
             return ()
+        await session.execute(
+            text(
+                """
+                select id from app.knowledge_sources
+                where organization_id = :organization_id
+                order by id
+                for update
+                """
+            ),
+            {"organization_id": organization_id},
+        )
         settings_result = await session.execute(
             text(
                 """
@@ -351,8 +386,44 @@ class RagRepository:
         if exact:
             await session.execute(text("set local enable_indexscan = off"))
             await session.execute(text("set local enable_bitmapscan = off"))
-        result = await session.execute(
-            text(
+        indexed_1536 = not exact and len(query_vector) == 1536
+        if indexed_1536:
+            statement = text(
+                """
+                select chunk.id as chunk_id, chunk.source_id,
+                       chunk.knowledge_source_version_id as version_id,
+                       version.version_number, source.title as source_title,
+                       source.kind as source_kind, chunk.content, chunk.locator,
+                       1 - (
+                         embedding.embedding::extensions.vector(1536)
+                         <=> cast(:query_vector as extensions.vector(1536))
+                       ) as vector_score
+                from app.knowledge_chunk_embeddings as embedding
+                inner join app.knowledge_index_generations as generation
+                  on generation.organization_id = embedding.organization_id
+                 and generation.id = embedding.generation_id
+                inner join app.knowledge_chunks as chunk
+                  on chunk.organization_id = embedding.organization_id
+                 and chunk.source_id = embedding.source_id
+                 and chunk.knowledge_source_version_id = embedding.knowledge_source_version_id
+                 and chunk.id = embedding.chunk_id
+                inner join app.knowledge_sources as source
+                  on source.organization_id = chunk.organization_id and source.id = chunk.source_id
+                inner join app.knowledge_source_versions as version
+                  on version.organization_id = chunk.organization_id
+                 and version.source_id = chunk.source_id
+                 and version.id = chunk.knowledge_source_version_id
+                where embedding.organization_id = :organization_id
+                  and embedding.embedding_profile_id = :profile_id
+                  and embedding.embedding_dimensions = 1536
+                  and generation.status = 'ready' and generation.is_active
+                order by embedding.embedding::extensions.vector(1536)
+                           <=> cast(:query_vector as extensions.vector(1536)), chunk.id
+                limit :limit
+                """
+            )
+        else:
+            statement = text(
                 """
                 select chunk.id as chunk_id, chunk.source_id,
                        chunk.knowledge_source_version_id as version_id,
@@ -381,7 +452,9 @@ class RagRepository:
                 order by embedding.embedding <=> cast(:query_vector as extensions.vector), chunk.id
                 limit :limit
                 """
-            ),
+            )
+        result = await session.execute(
+            statement,
             {
                 "organization_id": organization_id,
                 "profile_id": profile_id,

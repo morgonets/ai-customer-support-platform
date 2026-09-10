@@ -159,6 +159,8 @@ def test_ensure_settings_handles_missing_profile_and_existing_generations() -> N
     existing = _session(
         Result(rows=[_profile_row()]),
         Result(),
+        Result(),
+        Result(),
         Result(rows=[{"active_profile_id": PROFILE_ID, "staging_profile_id": None}]),
         Result(),
         Result(rows=[_generation_row()]),
@@ -245,7 +247,7 @@ def test_explicit_reindex_and_profile_migration_paths() -> None:
         )
         == ()
     )
-    no_change = _session(Result(rows=[_profile_row()]), Result())
+    no_change = _session(Result(rows=[_profile_row()]), Result(), Result())
     assert (
         asyncio.run(
             repository.begin_profile_migration(
@@ -261,6 +263,7 @@ def test_explicit_reindex_and_profile_migration_paths() -> None:
 
     migration = _session(
         Result(rows=[_profile_row(STAGING_PROFILE_ID)]),
+        Result(),
         Result(scalar=ORGANIZATION_ID),
         Result(rows=[{"source_id": SOURCE_ID, "version_id": VERSION_ID}]),
         Result(),
@@ -308,7 +311,7 @@ def test_exact_and_indexed_vector_and_lexical_retrieval() -> None:
                     indexed,
                     organization_id=ORGANIZATION_ID,
                     profile_id=PROFILE_ID,
-                    query_vector=[1, 0],
+                    query_vector=[1.0] + [0.0] * 1535,
                     limit=5,
                     exact=False,
                 )
@@ -316,6 +319,9 @@ def test_exact_and_indexed_vector_and_lexical_retrieval() -> None:
         )
         == 1
     )
+    indexed_sql = str(indexed.execute.call_args.args[0])
+    assert "embedding.embedding::extensions.vector(1536)" in indexed_sql
+    assert "embedding.embedding_dimensions = 1536" in indexed_sql
     lexical_row = {
         **_candidate_row(locator={"page": 1}),
         "vector_score": None,

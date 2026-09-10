@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
 from app.rag.chunking import ReferenceChunker
 from app.rag.models import ClaimedGeneration
 from app.rag.ports import EmbeddingProvider, RagTelemetry
@@ -98,10 +99,11 @@ class IndexingWorker:
             )
             if len(embeddings) != len(chunk_set.chunks):
                 raise ProviderError("provider returned an invalid embedding count")
-        except (ProviderError, ValueError):
-            logger.exception(
+        except (ProviderError, ValueError) as exc:
+            logger.error(
                 "rag.indexing_failed",
                 extra={
+                    "error_type": type(exc).__name__,
                     "generation_id": str(generation.id),
                     "provider": generation.profile.provider,
                 },
@@ -124,9 +126,13 @@ class IndexingWorker:
                     chunk_count=len(chunk_set.chunks),
                     input_tokens=None,
                 )
-        except Exception:
-            logger.exception(
-                "rag.index_persistence_failed", extra={"generation_id": str(generation.id)}
+        except Exception as exc:
+            logger.error(
+                "rag.index_persistence_failed",
+                extra={
+                    "generation_id": str(generation.id),
+                    "error_type": type(exc).__name__,
+                },
             )
             await self._mark_failure(generation, "persistence_failed")
             return True
@@ -144,20 +150,33 @@ class IndexingWorker:
             and generation.attempt_count < self._maximum_attempts
         ):
             retry_at = datetime.now(tz=UTC) + timedelta(seconds=self._retry_delay_seconds)
-        async with self._database.session(str(generation.lease_token)) as session:
-            await self._repository.fail(
-                session,
-                generation=generation,
-                code=code,
-                message=(
-                    "Indexing did not complete; the previous active generation remains available."
-                ),
-                retry_at=retry_at,
+        try:
+            async with self._database.session(str(generation.lease_token)) as session:
+                await self._repository.fail(
+                    session,
+                    generation=generation,
+                    code=code,
+                    message=(
+                        "Indexing did not complete; the previous active generation remains "
+                        "available."
+                    ),
+                    retry_at=retry_at,
+                )
+        except Exception as exc:
+            # Deletion or another worker reclaiming an expired lease makes this update stale.
+            # The durable row is already absent or owned by the new worker, so fail closed.
+            logger.error(
+                "rag.failure_state_not_recorded",
+                extra={
+                    "generation_id": str(generation.id),
+                    "error_type": type(exc).__name__,
+                },
             )
 
 
 async def run_worker(*, once: bool) -> None:
     settings = get_settings()
+    configure_logging(settings.log_level)
     database = WorkerDatabase(settings.rag_worker_database_url)
     providers: dict[str, EmbeddingProvider] = {"deterministic": DeterministicEmbeddingProvider()}
     if settings.openai_api_key:

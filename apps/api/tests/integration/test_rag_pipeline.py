@@ -154,8 +154,32 @@ async def _exercise_rag_pipeline() -> None:
             description=None,
             raw_text="Refunds are available for 30 days after purchase.",
         )
-        await rag.enqueue_ready_source(session, actor_user_id=OWNER_ID, source=source)
+        generations = await rag.enqueue_ready_source(session, actor_user_id=OWNER_ID, source=source)
+        assert len(generations) == 1
+        await session.execute(
+            text(
+                "update app.knowledge_index_generations "
+                "set available_at = now() + interval '1 hour' where id = :generation_id"
+            ),
+            {"generation_id": generations[0].id},
+        )
 
+        await session.execute(text("reset role"))
+        await session.execute(text("set local role app_rag_worker"))
+        assert (
+            await worker_repository.claim(
+                session, worker_id="integration-worker", lease_seconds=300
+            )
+            is None
+        )
+        await _assume_actor(session, OWNER_ID)
+        await session.execute(
+            text(
+                "update app.knowledge_index_generations "
+                "set available_at = now() where id = :generation_id"
+            ),
+            {"generation_id": generations[0].id},
+        )
         await session.execute(text("reset role"))
         await session.execute(text("set local role app_rag_worker"))
         assert await _process_claimed(session, worker_repository) == VERSION_ONE_ID

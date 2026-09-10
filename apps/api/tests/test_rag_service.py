@@ -192,6 +192,19 @@ def test_enqueue_list_reindex_retry_and_profile_migration_lifecycle() -> None:
     ) == (_generation(),)
 
     repository.get_active_profile.return_value = None
+    assert (
+        asyncio.run(
+            service.reindex(
+                session,
+                actor_user_id=ACTOR_ID,
+                organization_id=ORGANIZATION_ID,
+                source_id=SOURCE_ID,
+                request_id=None,
+            )
+        )
+        == _generation()
+    )
+    repository.ensure_settings_and_enqueue.return_value = ()
     with pytest.raises(RagNotConfiguredError):
         asyncio.run(
             service.reindex(
@@ -275,7 +288,7 @@ def test_enqueue_list_reindex_retry_and_profile_migration_lifecycle() -> None:
             request_id=None,
         )
     ) == (_generation(),)
-    assert authorizer.require_role.call_count == 7
+    assert authorizer.require_role.call_count == 8
 
     knowledge.get_source.return_value = None
     with pytest.raises(KnowledgeSourceNotFoundError):
@@ -390,6 +403,21 @@ def test_answer_handles_generator_no_answer_error_and_unknown_evidence() -> None
             )
         )
     generator.generate.side_effect = None
+    for invalid in (
+        GenerationResult(parts=(), insufficient_context=False),
+        GenerationResult(parts=(GeneratedPart(" ", ("E1",)),), insufficient_context=False),
+        GenerationResult(parts=(GeneratedPart("Uncited", ()),), insufficient_context=False),
+    ):
+        generator.generate.return_value = invalid
+        with pytest.raises(RagProviderUnavailableError):
+            asyncio.run(
+                service.answer(
+                    session,
+                    actor_user_id=ACTOR_ID,
+                    organization_id=ORGANIZATION_ID,
+                    question="Question",
+                )
+            )
     generator.generate.return_value = GenerationResult(
         parts=(GeneratedPart("Part one", ("E1",)), GeneratedPart("Part two", ("E404",))),
         insufficient_context=False,

@@ -238,6 +238,8 @@ returns `409 rag_not_configured`; unknown profiles and generations return tenant
 Creating a ready article, finishing document extraction, or replacing article content queues the
 needed active and staging generations in the same database transaction. Indexing is asynchronous;
 an existing active generation remains eligible until its complete replacement activates.
+For organizations created before M3, the first explicit source re-index initializes the configured
+default embedding profile before queuing that source.
 
 ## Pagination, filtering, and idempotency (planned)
 

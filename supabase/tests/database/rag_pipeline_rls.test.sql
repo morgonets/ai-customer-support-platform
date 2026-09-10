@@ -5,7 +5,7 @@ grant usage on schema extensions to app_api;
 grant execute on all functions in schema extensions to app_api;
 set local search_path = public, extensions;
 
-select plan(23);
+select plan(24);
 
 select has_table('app', 'rag_embedding_profiles', 'embedding profiles exist');
 select has_table('app', 'organization_rag_settings', 'organization RAG settings exist');
@@ -53,6 +53,12 @@ select ok(
     'app_api', 'app.knowledge_index_generations', 'is_active', 'update'
   ),
   'the API role cannot activate generations directly'
+);
+select ok(
+  not pg_catalog.has_column_privilege(
+    'app_api', 'app.organization_rag_settings', 'active_profile_id', 'update'
+  ),
+  'the API role cannot switch the active embedding profile directly'
 );
 select ok(
   not pg_catalog.has_table_privilege(
