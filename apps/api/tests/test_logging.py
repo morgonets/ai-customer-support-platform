@@ -20,12 +20,16 @@ def test_json_formatter_emits_safe_structured_context() -> None:
     record.path = "/health"
     record.status_code = 200
     record.duration_ms = 1.25
+    record.generation_id = "generation-id"
+    record.provider = "deterministic"
 
     payload = cast(dict[str, object], json.loads(JsonFormatter().format(record)))
 
     assert payload["message"] == "request.completed"
     assert payload["request_id"] == "request-id"
     assert payload["status_code"] == 200
+    assert payload["generation_id"] == "generation-id"
+    assert payload["provider"] == "deterministic"
     assert "timestamp" in payload
 
 

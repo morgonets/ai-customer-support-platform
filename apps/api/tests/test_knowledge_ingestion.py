@@ -95,7 +95,9 @@ def _file() -> KnowledgeFileObject:
     )
 
 
-def _coordinator() -> tuple[KnowledgeIngestionCoordinator, MagicMock, MagicMock, MagicMock]:
+def _coordinator(
+    ready_callback: AsyncMock | None = None,
+) -> tuple[KnowledgeIngestionCoordinator, MagicMock, MagicMock, MagicMock]:
     service_mock = MagicMock(spec=KnowledgeService)
     storage_mock = MagicMock(spec=ObjectStorage)
     extractor_mock = MagicMock(spec=DocumentExtractor)
@@ -105,6 +107,7 @@ def _coordinator() -> tuple[KnowledgeIngestionCoordinator, MagicMock, MagicMock,
         cast(DocumentExtractor, extractor_mock),
         maximum_upload_bytes=1024,
         processing_stale_seconds=900,
+        ready_callback=ready_callback,
     )
     return coordinator, service_mock, storage_mock, extractor_mock
 
@@ -115,7 +118,8 @@ async def _sessions() -> AsyncIterator[AsyncSession]:
 
 
 def test_create_document_stores_extracts_and_marks_ready() -> None:
-    coordinator, service_mock, storage_mock, extractor_mock = _coordinator()
+    ready_callback = AsyncMock()
+    coordinator, service_mock, storage_mock, extractor_mock = _coordinator(ready_callback)
     service_mock.create_document_processing.return_value = (_source("processing"), _file())
     service_mock.get_source.return_value = _source("processing")
     extracted = ExtractedContent("Knowledge content", {"schema_version": 1}, "plain_text", "1")
@@ -137,6 +141,7 @@ def test_create_document_stores_extracts_and_marks_ready() -> None:
     storage_mock.put.assert_awaited_once()
     extractor_mock.extract.assert_awaited_once()
     service_mock.mark_document_ready.assert_awaited_once()
+    ready_callback.assert_awaited_once()
 
 
 def test_create_document_persists_storage_and_extraction_failures() -> None:

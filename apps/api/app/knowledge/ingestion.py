@@ -1,7 +1,7 @@
 import logging
 import os
 import tempfile
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from uuid import UUID
@@ -20,6 +20,7 @@ from app.knowledge.storage import ObjectStorage
 
 logger = logging.getLogger("app.knowledge.ingestion")
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+ReadyCallback = Callable[[AsyncSession, UUID, KnowledgeSource], Awaitable[None]]
 
 
 def _unlink(path: Path) -> None:
@@ -35,12 +36,14 @@ class KnowledgeIngestionCoordinator:
         *,
         maximum_upload_bytes: int,
         processing_stale_seconds: int,
+        ready_callback: ReadyCallback | None = None,
     ) -> None:
         self._service = service
         self._storage = storage
         self._extractor = extractor
         self._maximum_upload_bytes = maximum_upload_bytes
         self._processing_stale_seconds = processing_stale_seconds
+        self._ready_callback = ready_callback
 
     async def create_document(
         self,
@@ -210,13 +213,16 @@ class KnowledgeIngestionCoordinator:
                 message="The document text could not be extracted.",
             )
         async with session_factory() as session:
-            return await self._service.mark_document_ready(
+            ready = await self._service.mark_document_ready(
                 session,
                 actor_user_id=actor_user_id,
                 organization_id=organization_id,
                 source_id=source_id,
                 extracted=extracted,
             )
+            if self._ready_callback is not None:
+                await self._ready_callback(session, actor_user_id, ready)
+            return ready
 
     async def _mark_failure(
         self,

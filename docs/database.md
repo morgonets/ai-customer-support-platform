@@ -2,11 +2,10 @@
 
 ## Status
 
-M2 uses Supabase PostgreSQL as the transactional system of record and Supabase Auth as the
-identity store. The committed Supabase SQL migrations create the application schemas, identity
-projection, organizations, memberships, versioned knowledge sources, grants, and row-level
-security policies described below. Conversation, chunk, vector, billing, and analytics tables
-remain planned.
+M3 uses Supabase PostgreSQL as the transactional and retrieval system of record and Supabase Auth
+as the identity store. Committed migrations include versioned knowledge, RAG indexing generations,
+lexical search, pgvector storage, grants, and row-level security. Conversation, billing, and
+analytics tables remain planned.
 
 ## Database role
 
@@ -24,7 +23,7 @@ access.
   tables.
 - `app`: application tables. This schema is not in the Supabase Data API exposed-schema list.
 - `app_private`: trigger and RLS helper functions. It is also not exposed.
-- `public` and `graphql_public`: remain available to Supabase platform components but contain no M2
+- `public` and `graphql_public`: remain available to Supabase platform components but contain no
   product tables.
 
 `anon`, `authenticated`, and `service_role` receive no privileges on `app` or `app_private`.
@@ -135,6 +134,39 @@ Normalized content is limited to 2,000,000 characters, article input to 500,000 
 document metadata records the enforced 10 MiB upload maximum. `locator_map` uses versioned JSON
 character offsets so M3 can map chunks back to pages or text segments.
 
+## M3 RAG schema
+
+`app.rag_embedding_profiles` is a global immutable catalog. A profile records provider, model,
+optional model revision, dimensions, cosine distance, input-format versions, and a SHA-256
+fingerprint. The migration seeds deterministic local/CI and opt-in OpenAI
+`text-embedding-3-small` profiles at 1536 dimensions. New model or dimension choices require new
+profiles; existing rows are never rewritten.
+
+Every other M3 table is tenant-owned and has a required `organization_id` plus composite source and
+version lineage:
+
+| Table                         | Purpose and retention                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `organization_rag_settings`   | Active and optional staging embedding profiles for an organization                                         |
+| `knowledge_chunk_sets`        | Immutable chunker configuration, source hash, and chunk count for one immutable M2 version                 |
+| `knowledge_chunks`            | Exact normalized-text slices, character bounds, hashes, locators, and generated `simple` `tsvector` values |
+| `knowledge_index_generations` | Durable queue, lease, validation, failure, profile, and active-generation state                            |
+| `knowledge_chunk_embeddings`  | Generation-specific variable-dimension pgvector values with explicit profile and lineage constraints       |
+
+Embeddings use unconstrained `vector` storage with a checked `embedding_dimensions` value. This
+allows future profiles with different dimensions without rewriting historical generations. A
+partial expression HNSW index supports 1536-dimensional cosine search. Exact tenant-filtered search
+is the runtime default because approximate filtered recall has not been measured for this product.
+PostgreSQL GIN indexes support lexical candidates.
+
+The database permits at most one active generation per organization/source. Completion validates
+that the selected chunk set and generation contain the exact expected number of chunks and matching
+profile embeddings. For the active profile it locks the source generations, deactivates the old
+generation, and activates the replacement in one transaction. Staging-profile activation locks the
+organization and swaps all sources only when every current ready M2 version has a ready replacement.
+Failed work does not touch active rows. Deleting a knowledge source cascades to all M3 artifacts,
+making the source immediately ineligible for retrieval.
+
 ## Runtime roles and transaction identity
 
 - `api_login` is the password-bearing FastAPI login. It has no table privileges and does not
@@ -142,6 +174,9 @@ character offsets so M3 can map chunks back to pages or text segments.
 - `app_api` cannot log in, own tables, create objects, or bypass RLS. It receives only the documented
   schema and table privileges.
 - `api_login` may assume only `app_api` for product queries.
+- `rag_worker_login` may assume only `app_rag_worker`. The worker role cannot log in or bypass RLS;
+  it changes lifecycle state only through guarded functions, and artifact policies require a live
+  transaction-local lease token.
 - The local/production password is provisioned outside migrations. Migration and runtime
   credentials are separate.
 
@@ -152,8 +187,7 @@ reused. Missing setup fails closed because `api_login` cannot read application t
 
 ## RLS and tenant isolation
 
-All M1 and M2 application tables enable and force RLS. Policies are operation-specific and apply only to
-`app_api`.
+All M1–M3 tenant-owned application tables enable and force RLS. Policies are operation-specific.
 
 - Profiles: a user may select their own profile and profiles of users who share an organization;
   only the user may update their display name.
@@ -172,6 +206,9 @@ All M1 and M2 application tables enable and force RLS. Policies are operation-sp
   `app_private.knowledge_file_objects` function returns file locations only when the current live
   membership is `owner` or `admin`. FastAPI independently performs the same role check before
   download or deletion.
+- RAG: members can read tenant RAG status and retrieve active evidence; owners/admins can enqueue or
+  retry generations and stage a known profile. The API cannot set `is_active`. The worker can touch
+  artifacts only for a currently leased generation and cannot read unrelated tenant data.
 
 Membership helper functions are `SECURITY DEFINER`, use an empty `search_path`, reference only
 schema-qualified objects, and are executable only by `app_api`. They avoid recursive membership
@@ -192,9 +229,8 @@ Every future tenant-owned table must add, in the same migration:
 - tenant-required repository interfaces and FastAPI authorization tests
 - documented deletion and retention behavior
 
-M3 chunks must reference `organization_id`, `source_id`, and `knowledge_source_version_id`.
-Embedding/indexing generations must not overwrite ready source versions. Citation records should
-store the stable version/chunk identity plus the display/location snapshot needed after deletion.
+Future citation persistence, if approved after M3, must store stable version/chunk identity plus the
+display/location snapshot needed after deletion. M3 returns citations without storing them.
 
 ## Migration policy
 
@@ -209,7 +245,7 @@ used. SQLAlchemy mappings are reviewed against migrations but do not generate a 
   and domain services against the same PostgreSQL policies inside rolled-back integration
   transactions.
 - Remote application requires an explicit reviewed `supabase db push --dry-run` followed by a
-  controlled push. M2 does not link or modify a remote project.
+  controlled push. M3 does not link or modify a remote project.
 - Migrations document recovery notes. Once data exists, prefer roll-forward recovery over dropping
   application schemas.
 - Seed data is synthetic, deterministic, and credential-free.
@@ -219,9 +255,9 @@ used. SQLAlchemy mappings are reviewed against migrations but do not generate a 
 Knowledge source deletion is a hard delete. FastAPI deletes every stored object first, treating a
 missing object as already removed, and then deletes the source so versions and normalized content
 cascade. If storage deletion fails, the database source remains for retry. Historical versions are
-retained until source deletion.
+retained until source deletion, together with their inactive chunks and index generations.
 
 Production project, region, plan, backup/PITR, retention, recovery objectives, and offboarding
 policy remain configurable decisions. Before launch, document and test database and object-storage
-backups, restores, tenant export/deletion, Auth user deletion, and measured RPO/RTO. M2 does not
+backups, restores, tenant export/deletion, Auth user deletion, and measured RPO/RTO. M3 does not
 invent those production values or expose organization deletion.

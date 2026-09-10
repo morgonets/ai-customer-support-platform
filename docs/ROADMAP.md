@@ -31,7 +31,7 @@ This roadmap sequences outcomes rather than promising dates. A milestone is comp
 
 ## M2 — Knowledge-base lifecycle
 
-**Implementation status:** complete on `codex/m2-knowledge-base`; awaiting review and merge.
+**Implementation status:** complete and merged into `main`.
 
 **Goal:** let a workspace safely manage source material.
 
@@ -48,6 +48,8 @@ boundary. M2 does not require a queue, worker, embedding provider, or vector ind
 
 ## M3 — Grounded answer engine
 
+**Implementation status:** implemented on `codex/m3-rag-pipeline`; awaiting review.
+
 **Goal:** answer questions from tenant knowledge with verifiable evidence.
 
 - Versioned retrieval and ranking pipeline
@@ -57,7 +59,7 @@ boundary. M2 does not require a queue, worker, embedding provider, or vector ind
 - Prompt construction with untrusted-content defenses
 - Source citations mapped to stable document locations
 - No-answer and low-confidence behavior
-- Evaluation dataset and retrieval/answer quality harness
+- Synthetic public evaluation cases and retrieval/answer quality harness; private production data deferred
 - Token, latency, and provider error telemetry
 
 **Exit criteria:** evaluated questions produce traceable answers or an explicit no-answer outcome, with tenant isolation and provider failures covered by tests.

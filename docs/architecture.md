@@ -2,9 +2,9 @@
 
 ## Status
 
-This document describes the implemented M2 authentication, tenancy, and knowledge-base
-architecture plus the intended direction for later milestones. Sections marked **planned** are not
-implemented yet.
+This document describes the implemented M3 authentication, tenancy, knowledge-base, indexing, and
+grounded-answer architecture plus the intended direction for later milestones. Sections marked
+**planned** are not implemented yet.
 
 ## Architectural drivers
 
@@ -29,12 +29,12 @@ flowchart LR
     api --> db[(Supabase PostgreSQL + pgvector)]
     auth --> db
     api --> storage[Private local object storage]
-    api --> llm[LLM and embedding providers - planned]
+    api --> llm[LLM and embedding providers]
 ```
 
-M2 includes Supabase Auth sessions, authenticated application routes, FastAPI JWT verification,
-organizations, memberships, role authorization, PostgreSQL RLS, versioned knowledge sources, and
-private local file storage. Chat, Telegram, managed storage, and model providers remain planned.
+M3 adds versioned chunks and embeddings, PostgreSQL lexical and vector retrieval, durable indexing,
+grounded answer generation, and citations. Chat, Telegram, managed storage, and production provider
+routing remain planned.
 
 ## Repository and deployment units
 
@@ -44,7 +44,8 @@ The repository contains two application boundaries:
   session integration, user interaction, and calls to the public API. It accesses Supabase directly
   only for authentication and does not query product data through Supabase Data APIs.
 - **API (`apps/api`)** — FastAPI modular monolith. It owns authorization, tenant-aware domain
-  workflows, product persistence, and later retrieval, provider orchestration, and channel adapters.
+  workflows, product persistence, retrieval, answer orchestration, and later channel adapters. The
+  RAG worker is a second process from this same codebase, not a separate service.
 
 Supabase PostgreSQL with pgvector is the system of record. Supabase Auth owns credentials and
 sessions; current application roles, memberships, and knowledge metadata/content remain PostgreSQL
@@ -52,15 +53,12 @@ data. M2 original document bytes use a persistent local-filesystem adapter behin
 A managed adapter and external AI providers will be added only when their deployment milestones
 have approved credential and tenancy models.
 
-M2 extraction is bounded and synchronous, with blocking parsing moved off the event loop and
-processing state persisted before file work. A background worker may later run from the same
-backend codebase when durable indexing work justifies it. That would be a process boundary for
-operational work, not permission to duplicate domain logic or introduce a separate service.
+M2 extraction remains bounded and synchronous. M3 indexing uses PostgreSQL jobs and expiring leases
+with a restricted `app_rag_worker` role. It requires no Redis, Kafka, or external broker.
 
 ## Backend module direction
 
-Product modules are organized by capability rather than technical layer alone. M2 implements the
-`tenants` and `knowledge` capabilities; later directories remain planned:
+Product modules are organized by capability rather than technical layer alone:
 
 ```text
 app/
@@ -68,8 +66,8 @@ app/
 ├── core/            # Configuration, observability, security primitives
 ├── tenants/         # Organizations, memberships, tenant context (M1)
 ├── knowledge/       # Sources, versions, local storage, extraction (M2)
+├── rag/             # Chunks, indexing, retrieval, answers, citations, provider ports (M3)
 ├── conversations/   # Conversations, messages, feedback, handoff (planned)
-├── answering/       # Retrieval, prompting, citations, provider ports (planned)
 └── integrations/    # Telegram and other external adapters (planned)
 ```
 
@@ -141,13 +139,34 @@ concrete later requirement justifies a more granular model.
 
 ## Provider boundaries
 
-M2 defines a narrow `ObjectStorage` port with a local persistent adapter. Storage keys are generated
-server-side from tenant/source/version identities, and the adapter validates that shape before file
-access. Text generation, embeddings, managed object storage, and messaging delivery remain planned;
-their provider adapters must translate SDK requests and failures without making vendor SDKs domain
-interfaces.
+M2 defines a narrow `ObjectStorage` port. M3 adds `EmbeddingProvider`, `GenerationProvider`, and
+telemetry ports. Deterministic adapters support local development and CI. OpenAI adapters are
+opt-in, keep API keys server-side, disable response storage, request structured answer output, and
+do not enable tools. Managed object storage and messaging delivery remain planned.
 
 Provider abstraction does not mean every vendor feature must be flattened. Vendor-specific capabilities may be exposed through typed capability checks or configuration where they create product value.
+
+## M3 retrieval and activation lifecycle
+
+Chunks are deterministic exact character slices of immutable `knowledge_source_versions`. Every
+chunk retains source, version, offsets, content hash, and a locator derived from the M2
+`locator_map`. Chunker and embedding fingerprints make future re-indexing reproducible.
+
+Indexing follows build → validate → activate. A queued generation is claimed with an expiring lease,
+built outside retrieval, and accepted only when its chunk and embedding counts match. Completing a
+replacement atomically deactivates the old source generation and activates the new one. A failure
+never changes the old active generation. Source deletion cascades through every generation and
+therefore removes retrieval eligibility immediately. An embedding-profile migration stages all
+current ready sources and changes the organization profile only after every replacement is ready.
+
+Retrieval filters by the authorized organization and active ready generations. Exact cosine search
+is the default. A partial 1536-dimensional HNSW expression index is installed as an available
+optimization, but is not selected until measured. The public reference ranker combines vector and
+PostgreSQL lexical ranks with equal weights and RRF constant 60; it does not rewrite or rerank.
+
+Knowledge content is serialized as untrusted evidence. Generated parts must cite supplied evidence
+IDs, which map back through stable chunk locators. Unsupported claims return an explicit
+insufficient-context result. M3 does not persist questions, answers, prompts, or citations.
 
 ## Reliability and observability direction
 
@@ -172,8 +191,7 @@ See `SECURITY.md` and `docs/database.md` for repository and data-specific contro
 These choices should be approved when their milestone has concrete requirements:
 
 - Object storage provider and document malware-scanning approach
-- Background job implementation and queue infrastructure
-- Initial LLM and embedding providers and fallback policy
+- Production provider routing and fallback policy
 - Hosting platform, regions, recovery objectives, and production topology
 - Licensing and commercial distribution terms
 
